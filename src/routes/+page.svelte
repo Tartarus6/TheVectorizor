@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { rgbToOklab, oklabToSRGB, type RGB, type Oklab, rgbToHex, get_distance, get_median, clamp } from "$lib/utils";
 
-	let base_bandwidth = $state(0.2);
-	let density_probe_radius = $state(0.1);
+	let base_bandwidth = $state(0.1);
+	let density_probe_radius = $state(0.05);
 	let num_points = $state(10);
 
 	let graph_size_rem = $state(32);
@@ -115,6 +115,26 @@
 			density_scores[i] = get_density_score(colors[i]);
 		}
 	}
+
+	function add_color_from_graph_click(event: MouseEvent) {
+		const graph = event.currentTarget as HTMLButtonElement | null;
+		if (!graph) {
+			return;
+		}
+
+		const rect = graph.getBoundingClientRect();
+		const x_ratio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+		const y_ratio = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+
+		const new_color: Oklab = {
+			L: 0.5,
+			a: x_ratio - 0.5,
+			b: y_ratio - 0.5
+		};
+
+		colors = [...colors, new_color];
+		update_density_scores();
+	}
 </script>
 
 <h1 class="text-center">The Vectorizor</h1>
@@ -138,19 +158,12 @@
 </button>
 
 <span>Number of passes: {count}</span>
-
-<div class="flex flex-col">
-	{#each colors as color}
-		<div style="background: {rgbToHex(oklabToSRGB(color))};">
-			<span>{rgbToHex(oklabToSRGB(color))}</span>
-			<span>OkLab({color.L.toFixed(2)}, {color.a.toFixed(2)}, {color.b.toFixed(2)})</span>
-		</div>
-	{/each}
-</div>
 	
-<div
-	class="grid grid-cols-1 grid-rows-1 bg-white"
+<button
+	type="button"
+	class="grid grid-cols-1 grid-rows-1 bg-white p-0 border-0"
 	style="width: {graph_size_rem}rem; height: {graph_size_rem}rem;"
+	onmousedown={add_color_from_graph_click}
 >
 	{#each colors as color}
 		<div
@@ -162,6 +175,15 @@
 			class="col-start-1 row-start-1 rounded-full content-center"
 		>
 			<p class="w-full text-center">{get_density_score(color).toFixed(1)}</p>
+		</div>
+	{/each}
+</button>
+
+<div class="flex flex-col">
+	{#each colors as color}
+		<div style="background: {rgbToHex(oklabToSRGB(color))};">
+			<span>{rgbToHex(oklabToSRGB(color))}</span>
+			<span>OkLab({color.L.toFixed(2)}, {color.a.toFixed(2)}, {color.b.toFixed(2)})</span>
 		</div>
 	{/each}
 </div>
