@@ -1,21 +1,7 @@
 <script lang="ts">
-	class RGB {
-		r: number;
-		g: number;
-		b: number;
+	import { rgbToOklab, oklabToSRGB, type RGB, type Oklab, rgbToHex } from "$lib/utils";
 
-		constructor(r: number, g: number, b: number) {
-			this.r = r;
-			this.g = g;
-			this.b = b;
-		}
-
-		clone() {
-			return new RGB(this.r, this.g, this.b);
-		}
-	}
-
-	let bandwidth = $state(50);
+	let bandwidth = $state(0.2);
 	let num_points = $state(10);
 
 	let graph_size_rem = $state(32);
@@ -23,49 +9,49 @@
 
 	let count = $state(0);
 
-	let colors: RGB[] = $state([]);
+	let colors: Oklab[] = $state([]);
 
 	function randomize_colors(n: number) {
 		colors = [];
 		count = 0;
 		for (let i = 0; i < n; i++) {
-			let color = new RGB(0, Math.random() * 255, Math.random() * 255);
+			let color: Oklab = { L: 0.5, a: Math.random() - 0.5, b: Math.random() - 0.5};
 			colors[i] = color;
 		}
 	}
 
 	function mean_shift_cluster_step(b: number) {
-		let shifted_colors: RGB[] = [];
+		let shifted_colors: Oklab[] = [];
 
 		let the_same: boolean = true;
 
 		for (let color of colors) {
-			let cluster: RGB[] = [];
+			let cluster: Oklab[] = [];
 			for (let other_color of colors) {
-				let delta_r_sq = (color.r - other_color.r) * (color.r - other_color.r);
-				let delta_g_sq = (color.g - other_color.g) * (color.g - other_color.g);
+				let delta_L_sq = (color.L - other_color.L) * (color.L - other_color.L);
+				let delta_a_sq = (color.a - other_color.a) * (color.a - other_color.a);
 				let delta_b_sq = (color.b - other_color.b) * (color.b - other_color.b);
-				let dist = Math.sqrt(delta_r_sq + delta_g_sq + delta_b_sq);
+				let dist = Math.sqrt(delta_L_sq + delta_a_sq + delta_b_sq);
 
 				if (dist < bandwidth) {
 					cluster.push(other_color);
 				}
 			}
 
-			let cluster_sum = new RGB(0, 0, 0);
+			let cluster_sum: Oklab = { L: 0, a: 0, b: 0 };
 			for (let neighbor_color of cluster) {
-				cluster_sum.r += neighbor_color.r;
-				cluster_sum.g += neighbor_color.g;
+				cluster_sum.L += neighbor_color.L;
+				cluster_sum.a += neighbor_color.a;
 				cluster_sum.b += neighbor_color.b;
 			}
 
-			let new_color = new RGB(
-				cluster_sum.r / cluster.length,
-				cluster_sum.g / cluster.length,
-				cluster_sum.b / cluster.length
-			);
+			let new_color: Oklab = {
+				L: cluster_sum.L / cluster.length,
+				a: cluster_sum.a / cluster.length,
+				b: cluster_sum.b / cluster.length
+			};
 
-			if (color.r != new_color.r || color.g != new_color.g || color.b != new_color.b) {
+			if (color.L != new_color.L || color.a != new_color.a || color.b != new_color.b) {
 				the_same = false;
 			}
 
@@ -106,23 +92,24 @@
 
 <div class="flex flex-col">
 	{#each colors as color}
-		<div style="background: rgb({color.r}, {color.g}, {color.b})">
-			<p>rgb({color.r}, {color.g}, {color.b})</p>
+		<div style="background: {rgbToHex(oklabToSRGB(color))};">
+			<span>{rgbToHex(oklabToSRGB(color))}</span>
+			<span>OkLab({color.L.toFixed(2)}, {color.a.toFixed(2)}, {color.b.toFixed(2)})</span>
 		</div>
 	{/each}
 </div>
-
+	
 <div
 	class="grid grid-cols-1 grid-rows-1 bg-white"
 	style="width: {graph_size_rem}rem; height: {graph_size_rem}rem;"
 >
 	{#each colors as color}
 		<div
-			style="background: rgb({color.r}, {color.g}, {color.b});
+			style="background: {rgbToHex(oklabToSRGB(color))};
 			    width: {point_size_rem}rem; height: {point_size_rem}rem;
 			    transform: translate(
-					{(color.g / 255) * graph_size_rem - point_size_rem / 2}rem,
-					{(color.b / 255) * graph_size_rem - point_size_rem / 2}rem);"
+					{(color.a + 0.5) * graph_size_rem - point_size_rem / 2}rem,
+					{(color.b + 0.5) * graph_size_rem - point_size_rem / 2}rem);"
 			class="col-start-1 row-start-1 rounded-full"
 		></div>
 	{/each}
