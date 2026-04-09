@@ -1,42 +1,21 @@
-# sv
+# The Vectorizor
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+This is a webapp that can be used to turn simple raster (pixel) images into vector images.
 
-## Creating a project
 
-If you're seeing this, you've probably already done this step. Congrats!
+## Goals/Limitations
+The focus is on simple images. That means limited color palettes, no gradients, etc. Some examples of the targets would be simple logos, or the art from Slime Rancher 2.
 
-```sh
-# create a new project
-npx sv create my-app
-```
 
-To recreate this project with the same configuration:
-
-```sh
-# recreate this project
-npx sv@0.15.0 create --template minimal --types ts --add prettier eslint vitest="usages:unit,component" playwright tailwindcss="plugins:typography" sveltekit-adapter="adapter:auto" --install npm TheVectorizor
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
-
-```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
-```
-
-## Building
-
-To create a production version of your app:
-
-```sh
-npm run build
-```
-
-You can preview the production build with `npm run preview`.
-
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+## Stages (prospective)
+1. quantize
+    - do something like mean shift clustering to remove anti-aliasing artifacts
+    - probably want to put colors in a perceptualy uniform color space like oklab
+2. edge detect
+    - somehow, needs to include directionality
+3. polygonalization
+    - identify the boundaries between colors, and make a polygon with shared points denoting the edges between the colors, prevents gaps and overlaps
+4. simplification
+    - make the poly lines into bezier curves to clean it
+5. svg-ification
+    - make it into an svg
