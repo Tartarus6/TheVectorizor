@@ -35,8 +35,9 @@
 	}
 
 	function mean_shift_cluster_step(b: number) {
-		count += 1;
 		let shifted_colors: RGB[] = [];
+
+		let the_same: boolean = true;
 
 		for (let color of colors) {
 			let cluster: RGB[] = [];
@@ -64,10 +65,18 @@
 				cluster_sum.b / cluster.length
 			);
 
+			if (color.r != new_color.r || color.g != new_color.g || color.b != new_color.b) {
+				the_same = false;
+			}
+
 			shifted_colors.push(new_color);
 		}
 
-		colors = shifted_colors;
+		if (!the_same) {
+			count += 1;
+
+			colors = shifted_colors;
+		}
 	}
 </script>
 
