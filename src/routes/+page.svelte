@@ -86,8 +86,8 @@
 	function get_bandwidth(density_score: number, median_density: number) {
 		const alpha = 0.35; // controls how strongly the density matters
 		const epsilon = 0.000001; // prevents divide by zero
-		const min_mult = 1.8;
-		const max_mult = 0.7;
+		const min_mult = 0.7;
+		const max_mult = 1.8;
 		
 		console.log(density_score);
 		console.log(median_density);
