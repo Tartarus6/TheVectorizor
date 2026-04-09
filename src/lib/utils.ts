@@ -12,7 +12,22 @@ export type Oklab = {
 	b: number;
 };
 
-function clamp(value: number, min: number, max: number): number {
+export function get_median(arr: number[]) {
+  let mid = Math.floor(arr.length / 2);
+  let nums = [...arr].sort((a, b) => a - b);
+
+  return arr.length % 2 !== 0 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+};
+
+export function get_distance(color_a: Oklab, color_b: Oklab): number {
+    let delta_L_sq = (color_a.L - color_b.L) * (color_a.L - color_b.L);
+    let delta_a_sq = (color_a.a - color_b.a) * (color_a.a - color_b.a);
+    let delta_b_sq = (color_a.b - color_b.b) * (color_a.b - color_b.b);
+
+    return Math.sqrt(delta_L_sq + delta_a_sq + delta_b_sq);
+}
+
+export function clamp(value: number, min: number, max: number): number {
 	return Math.max(Math.min(value, max), min);
 }
 
