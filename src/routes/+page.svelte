@@ -21,17 +21,21 @@
 	let graph_size_rem = $state(32);
 	let point_size_rem = $state(2);
 
+	let count = $state(0);
+
 	let colors: RGB[] = $state([]);
 
 	function randomize_colors(n: number) {
 		colors = [];
+		count = 0;
 		for (let i = 0; i < n; i++) {
-			let color = new RGB(Math.random() * 255, 0, Math.random() * 255);
+			let color = new RGB(0, Math.random() * 255, Math.random() * 255);
 			colors[i] = color;
 		}
 	}
 
 	function mean_shift_cluster_step(b: number) {
+		count += 1;
 		let shifted_colors: RGB[] = [];
 
 		for (let color of colors) {
@@ -57,7 +61,7 @@
 			let new_color = new RGB(
 				cluster_sum.r / cluster.length,
 				cluster_sum.g / cluster.length,
-				cluster_sum.b / cluster.length,
+				cluster_sum.b / cluster.length
 			);
 
 			shifted_colors.push(new_color);
@@ -89,6 +93,8 @@
 	</div>
 </button>
 
+<span>Number of passes: {count}</span>
+
 <div class="flex flex-col">
 	{#each colors as color}
 		<div style="background: rgb({color.r}, {color.g}, {color.b})">
@@ -106,7 +112,7 @@
 			style="background: rgb({color.r}, {color.g}, {color.b});
 			    width: {point_size_rem}rem; height: {point_size_rem}rem;
 			    transform: translate(
-					{(color.r / 255) * graph_size_rem - point_size_rem / 2}rem,
+					{(color.g / 255) * graph_size_rem - point_size_rem / 2}rem,
 					{(color.b / 255) * graph_size_rem - point_size_rem / 2}rem);"
 			class="col-start-1 row-start-1 rounded-full"
 		></div>
