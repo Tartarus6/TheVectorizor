@@ -127,6 +127,7 @@
 	}
 
 	function update_density_scores() {
+		density_scores = [];
 		for (let i in colors) {
 			density_scores[i] = get_density_score(colors[i]);
 		}
