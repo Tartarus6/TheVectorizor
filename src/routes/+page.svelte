@@ -1,5 +1,15 @@
 <script lang="ts">
-	import { rgbToOklab, oklabToSRGB, type RGB, type Oklab, rgbToHex, get_distance, get_median, clamp } from "$lib/utils";
+	import {
+		rgbToOklab,
+		oklabToSRGB,
+		type RGB,
+		type Oklab,
+		rgbToHex,
+		get_distance,
+		get_median,
+		clamp
+	} from '$lib/utils';
+	import { gpu_test } from '$lib/shaders';
 
 	let base_bandwidth = $state(0.1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
@@ -19,167 +29,10 @@
 		colors = [];
 		count = 0;
 		for (let i = 0; i < n; i++) {
-			let color: Oklab = { L: 0.5, a: Math.random() - 0.5, b: Math.random() - 0.5};
+			let color: Oklab = { L: 0.5, a: Math.random() - 0.5, b: Math.random() - 0.5 };
 			colors[i] = color;
 		}
 	}
-
-	async function gpu_test() {
-		const adapter = await navigator.gpu?.requestAdapter();
-		const device = await adapter?.requestDevice();
-		if (!device) {
-			alert('need a browser that supports WebGPU');
-			return;
-		}
-
-		const module = device.createShaderModule({
-			code: /*wgsl*/ `
-			struct Uniforms {
-                num_colors: f32,
-                bandwidth: f32,
-            }
-
-
-            @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-            @group(0) @binding(1) var<storage, read> input_colors: array<vec4<f32>>;
-            @group(0) @binding(2) var<storage, read_write> output_colors: array<vec4<f32>>;
-
-
-
-            @compute @workgroup_size(64)
-            fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
-                let BANDWIDTH_SQUARED = uniforms.bandwidth * uniforms.bandwidth;
-                let idx = id.x;
-                if idx >= u32(uniforms.num_colors) { return; }
-
-                let color = input_colors[idx].rgb;
-
-                var cluster_sum = vec3<f32>(0.0);
-                var cluster_count = 0u;
-
-                for (var i = 0u; i < u32(uniforms.num_colors); i++) {
-                    let other = input_colors[i].rgb;
-                    let delta = color - other;
-                    let dist = dot(delta, delta);
-
-                    if dist < BANDWIDTH_SQUARED {
-                        cluster_sum += other;
-                        cluster_count += 1u;
-
-                    }
-
-                }
-
-                let new_color = cluster_sum / f32(cluster_count);
-                output_colors[idx] = vec4<f32>(new_color, 1.0);
-            }
-				`
-		});
-
-		const pipeline = device.createComputePipeline({
-			label: 'doubling compute pipeline',
-			layout: 'auto',
-			compute: {
-				module,
-				entryPoint: 'cs_main'
-			}
-		});
-
-		const input = new Float32Array(colors.length * 4);
-
-		for (let i = 0; i < colors.length; i++) {
-			input[i * 4 + 0] = colors[i].L;
-			input[i * 4 + 1] = colors[i].a + 0.5;
-			input[i * 4 + 2] = colors[i].b + 0.5;
-			input[i * 4 + 3] = 0;
-		}
-
-		// create a buffer on the GPU to hold our computation
-		// input and output
-		const workBuffer = device.createBuffer({
-			label: 'input buffer',
-			size: input.byteLength,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
-		});
-		// Copy our input data to that buffer
-
-		// create a buffer on the GPU to get a copy of the results
-		const outputBuffer = device.createBuffer({
-			label: 'output buffer',
-			size: input.byteLength,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-		});
-
-		const readBackBuffer = device.createBuffer({
-			label: 'readback buffer',
-			size: input.byteLength,
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-		});
-
-		const uniformData = new Float32Array([input.length, base_bandwidth]);
-
-		const uniformBuffer = device.createBuffer({
-			label: 'uniform buffer',
-			size: input.byteLength,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		});
-
-		// Setup a bindGroup to tell the shader which
-		// buffer to use for the computation
-		const bindGroup = device.createBindGroup({
-			label: 'bindGroup for work buffer',
-			layout: pipeline.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: uniformBuffer },
-				{ binding: 1, resource: workBuffer },
-				{ binding: 2, resource: outputBuffer }
-			]
-		});
-		device.queue.writeBuffer(uniformBuffer, 0, uniformData);
-		device.queue.writeBuffer(workBuffer, 0, input);
-
-		// Encode commands to do the computation
-		const encoder = device.createCommandEncoder({
-			label: 'doubling encoder'
-		});
-		const pass = encoder.beginComputePass({
-			label: 'doubling compute pass'
-		});
-		pass.setPipeline(pipeline);
-		pass.setBindGroup(0, bindGroup);
-		pass.dispatchWorkgroups(input.length);
-		pass.end();
-
-		// Encode a command to copy the results to a mappable buffer.
-		encoder.copyBufferToBuffer(outputBuffer, 0, readBackBuffer, 0, outputBuffer.size);
-
-		// Finish encoding and submit the commands
-		const commandBuffer = encoder.finish();
-		device.queue.submit([commandBuffer]);
-
-		// Read the results
-		await readBackBuffer.mapAsync(GPUMapMode.READ);
-		const result = new Float32Array(readBackBuffer.getMappedRange().slice());
-
-		let the_same = true;
-		const newColors: Oklab[] = [];
-		for (let i = 0; i < colors.length; i++) {
-			const L = result[i * 4 + 0];
-			const a = result[i * 4 + 1] - 0.5;
-			const b = result[i * 4 + 2] - 0.5;
-			newColors.push({L, a, b});
-			if (L !== colors[i].L || a !== colors[i].a || b !== colors[i].b) {
-				the_same = false;
-			}
-		}
-
-		readBackBuffer.unmap();
-
-		if (!the_same) {
-			count += 1;
-			colors = newColors;
-		}
-	} // this is where test gpu ends
 
 	function mean_shift_cluster_step() {
 		// initialize density scores if not done
@@ -247,11 +100,14 @@
 		const epsilon = 0.000001; // prevents divide by zero
 		const min_mult = 0.7;
 		const max_mult = 1.8;
-		
+
 		console.log(density_score);
 		console.log(median_density);
 		console.log(Math.pow(median_density / density_score, alpha));
-		return base_bandwidth * clamp(Math.pow(median_density / (density_score + epsilon), alpha), min_mult, max_mult);
+		return (
+			base_bandwidth *
+			clamp(Math.pow(median_density / (density_score + epsilon), alpha), min_mult, max_mult)
+		);
 	}
 
 	function get_density_score(color: Oklab) {
@@ -263,7 +119,7 @@
 
 			let distance = get_distance(color, other_color);
 
-			density_score += Math.exp(-(distance * distance) / (2 * base_bandwidth * base_bandwidth))
+			density_score += Math.exp(-(distance * distance) / (2 * base_bandwidth * base_bandwidth));
 		}
 
 		return density_score;
@@ -308,27 +164,30 @@
 	</div>
 </button>
 
-<button
-	onmousedown={mean_shift_cluster_step}
->
+<button onmousedown={mean_shift_cluster_step}>
 	<div class="bg-yellow-500">
 		<span>mean shift cluster step</span>
 	</div>
 </button>
 
 <button
-	onmousedown={() => {
-		gpu_test();
+	onmousedown={async () => {
+		const [changed, newColors] = await gpu_test(colors, base_bandwidth);
+		if (changed) {
+			colors = newColors;
+			count += 1;
+			update_density_scores();
+		}
 	}}
 >
 	test the gpu
 </button>
 
 <span>Number of passes: {count}</span>
-	
+
 <button
 	type="button"
-	class="grid grid-cols-1 grid-rows-1 bg-white p-0 border-0"
+	class="grid grid-cols-1 grid-rows-1 border-0 bg-white p-0"
 	style="width: {graph_size_rem}rem; height: {graph_size_rem}rem;"
 	onmousedown={add_color_from_graph_click}
 >
@@ -339,7 +198,7 @@
 			    transform: translate(
 					{(color.a + 0.5) * graph_size_rem - point_size_rem / 2}rem,
 					{(color.b + 0.5) * graph_size_rem - point_size_rem / 2}rem);"
-			class="col-start-1 row-start-1 rounded-full content-center"
+			class="col-start-1 row-start-1 content-center rounded-full"
 		>
 			<p class="w-full text-center">{get_density_score(color).toFixed(1)}</p>
 		</div>
