@@ -161,6 +161,11 @@
 <h1 class="text-center">The Vectorizor</h1>
 
 <div class="flex flex-col">
+	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
+		<span>Num Points: {num_points}</span>
+		<input type="range" bind:value={num_points} min="0" max="1000" />
+	</div>
+
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
 		<span>randomize colors</span>
 	</button>
@@ -222,15 +227,6 @@
 		</div>
 	{/each}
 </button>
-
-<div class="flex flex-col">
-	{#each colors as color}
-		<div style="background: {rgbToHex(oklabToSRGB(color))};">
-			<span>{rgbToHex(oklabToSRGB(color))}</span>
-			<span>OkLab({color.L.toFixed(2)}, {color.a.toFixed(2)}, {color.b.toFixed(2)})</span>
-		</div>
-	{/each}
-</div>
 
 <div>
 	<canvas bind:this={canvas} class="col-start-1 row-start-1 h-100 w-100"></canvas>
