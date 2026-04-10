@@ -9,7 +9,7 @@
 		get_median,
 		clamp
 	} from '$lib/utils';
-	import { gpu_mean_shift_cluster_step, gpu_update_density_scores } from '$lib/shaders';
+	import { shader_pass } from '$lib/shaders';
 
 	let base_bandwidth = $state(0.1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
@@ -177,16 +177,16 @@
 
 	<button
 		onmousedown={async () => {
-			const [changed, newColors] = await gpu_mean_shift_cluster_step(
-				colors,
-				density_scores,
-				base_bandwidth
-			);
-			if (changed) {
-				colors = newColors;
-				count += 1;
-				await gpu_update_density_scores(colors, base_bandwidth);
-			}
+			// const [changed, newColors] = await gpu_mean_shift_cluster_step(
+			// 	colors,
+			// 	density_scores,
+			// 	base_bandwidth
+			// );
+			// if (changed) {
+			// 	colors = newColors;
+			// 	count += 1;
+			// 	await gpu_update_density_scores(colors, base_bandwidth);
+			// }
 		}}
 		class="m-2 w-fit cursor-pointer bg-yellow-500 p-2"
 	>
@@ -199,7 +199,7 @@
 
 	<button
 		onmousedown={() => {
-			gpu_update_density_scores(colors, base_bandwidth);
+			// gpu_update_density_scores(colors, base_bandwidth);
 		}}
 		class="m-2 w-fit cursor-pointer bg-red-500 p-2"
 	>
@@ -208,6 +208,26 @@
 
 	<span>Number of passes: {count}</span>
 </div>
+
+<button
+	onmousedown={async () => {
+		const url = '';
+		const res = await fetch(url);
+		const image = await createImageBitmap(await res.blob());
+
+		const [success, pixels] = await shader_pass(image, colors, base_bandwidth);
+		if (success) {
+			const safePixels = new Uint8ClampedArray(new ArrayBuffer(pixels.length));
+			safePixels.set(pixels);
+			canvas!
+				.getContext('2d')!
+				.putImageData(new ImageData(safePixels, image.width, image.height), 0, 0);
+		}
+	}}
+	class="m-2 w-fit cursor-pointer bg-red-500 p-2"
+>
+	<span>shader pass</span>
+</button>
 
 <button
 	type="button"
