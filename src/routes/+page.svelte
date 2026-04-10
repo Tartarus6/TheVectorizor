@@ -9,7 +9,7 @@
 		get_median,
 		clamp
 	} from '$lib/utils';
-	import { gpu_test } from '$lib/shaders';
+	import { gpu_mean_shift_cluster_step, gpu_update_density_scores } from '$lib/shaders';
 
 	let base_bandwidth = $state(0.1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
@@ -25,18 +25,21 @@
 	let colors: Oklab[] = $state([]);
 	let density_scores: number[] = $state([]);
 
-	function randomize_colors(n: number) {
+	async function randomize_colors() {
 		colors = [];
 		count = 0;
-		for (let i = 0; i < n; i++) {
+		for (let i = 0; i < num_points; i++) {
 			let color: Oklab = { L: 0.5, a: Math.random() - 0.5, b: Math.random() - 0.5 };
 			colors[i] = color;
 		}
+		// await gpu_update_density_scores(colors, base_bandwidth);
 	}
 
-	function mean_shift_cluster_step() {
+	async function mean_shift_cluster_step() {
+		console.log('starting mean shift cluster step TS');
 		// initialize density scores if not done
 		if (density_scores.length != colors.length) {
+			// await gpu_update_density_scores(colors, base_bandwidth);
 			update_density_scores();
 		}
 
@@ -90,6 +93,7 @@
 
 			colors = shifted_colors;
 
+			// await gpu_update_density_scores(shifted_colors, base_bandwidth);
 			update_density_scores();
 		}
 	}
@@ -101,9 +105,6 @@
 		const min_mult = 0.7;
 		const max_mult = 1.8;
 
-		console.log(density_score);
-		console.log(median_density);
-		console.log(Math.pow(median_density / density_score, alpha));
 		return (
 			base_bandwidth *
 			clamp(Math.pow(median_density / (density_score + epsilon), alpha), min_mult, max_mult)
@@ -129,9 +130,13 @@
 		for (let i in colors) {
 			density_scores[i] = get_density_score(colors[i]);
 		}
+
+		console.log();
+		console.log('TS Density Scores');
+		console.log($state.snapshot(density_scores));
 	}
 
-	function add_color_from_graph_click(event: MouseEvent) {
+	async function add_color_from_graph_click(event: MouseEvent) {
 		const graph = event.currentTarget as HTMLButtonElement | null;
 		if (!graph) {
 			return;
@@ -148,42 +153,55 @@
 		};
 
 		colors = [...colors, new_color];
+		// await gpu_update_density_scores(colors, base_bandwidth);
 		update_density_scores();
 	}
 </script>
 
 <h1 class="text-center">The Vectorizor</h1>
 
-<button
-	onmousedown={() => {
-		randomize_colors(num_points);
-	}}
->
-	<div class="bg-green-500">
+<div class="flex flex-col">
+	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
 		<span>randomize colors</span>
-	</div>
-</button>
+	</button>
 
-<button onmousedown={mean_shift_cluster_step}>
-	<div class="bg-yellow-500">
-		<span>mean shift cluster step</span>
-	</div>
-</button>
+	<button onmousedown={mean_shift_cluster_step} class="m-2 w-fit cursor-pointer bg-yellow-500 p-2">
+		<span>mean shift cluster step TS</span>
+	</button>
 
-<button
-	onmousedown={async () => {
-		const [changed, newColors] = await gpu_test(colors, base_bandwidth);
-		if (changed) {
-			colors = newColors;
-			count += 1;
-			update_density_scores();
-		}
-	}}
->
-	test the gpu
-</button>
+	<button
+		onmousedown={async () => {
+			const [changed, newColors] = await gpu_mean_shift_cluster_step(
+				colors,
+				density_scores,
+				base_bandwidth
+			);
+			if (changed) {
+				colors = newColors;
+				count += 1;
+				await gpu_update_density_scores(colors, base_bandwidth);
+			}
+		}}
+		class="m-2 w-fit cursor-pointer bg-yellow-500 p-2"
+	>
+		mean shift cluster step WGPU
+	</button>
 
-<span>Number of passes: {count}</span>
+	<button onmousedown={update_density_scores} class="m-2 w-fit cursor-pointer bg-red-500 p-2">
+		<span>update density scores TS</span>
+	</button>
+
+	<button
+		onmousedown={() => {
+			gpu_update_density_scores(colors, base_bandwidth);
+		}}
+		class="m-2 w-fit cursor-pointer bg-red-500 p-2"
+	>
+		<span>update density scores WGPU</span>
+	</button>
+
+	<span>Number of passes: {count}</span>
+</div>
 
 <button
 	type="button"
