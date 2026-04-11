@@ -9,7 +9,7 @@
 		get_median,
 		clamp
 	} from '$lib/utils';
-	import { shader_pass } from '$lib/shaders';
+	import { run_shader } from '$lib/shaders';
 
 	let image: ImageBitmap | undefined = $state();
 
@@ -186,12 +186,17 @@
 <div class="flex flex-col">
 	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
 		<span>Num Points: {num_points}</span>
-		<input type="range" bind:value={num_points} min="0" max="1000" />
+		<input type="range" bind:value={num_points} min={0} max={1000} />
 	</div>
 
 	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
 		<span>Canvas Scale: {canvas_scale}</span>
-		<input type="range" bind:value={canvas_scale} min="1" max="5" />
+		<input type="range" bind:value={canvas_scale} min={1} max={5} />
+	</div>
+
+	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
+		<span>Base Bandwidth: {base_bandwidth}</span>
+		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.001} />
 	</div>
 
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
@@ -202,40 +207,13 @@
 		<span>mean shift cluster step TS</span>
 	</button>
 
-	<button
-		onmousedown={async () => {
-			// const [changed, newColors] = await gpu_mean_shift_cluster_step(
-			// 	colors,
-			// 	density_scores,
-			// 	base_bandwidth
-			// );
-			// if (changed) {
-			// 	colors = newColors;
-			// 	count += 1;
-			// 	await gpu_update_density_scores(colors, base_bandwidth);
-			// }
-		}}
-		class="m-2 w-fit cursor-pointer bg-yellow-500 p-2"
-	>
-		mean shift cluster step WGPU
-	</button>
-
 	<button onmousedown={update_density_scores} class="m-2 w-fit cursor-pointer bg-red-500 p-2">
 		<span>update density scores TS</span>
 	</button>
 
 	<button
-		onmousedown={() => {
-			// gpu_update_density_scores(colors, base_bandwidth);
-		}}
-		class="m-2 w-fit cursor-pointer bg-red-500 p-2"
-	>
-		<span>update density scores WGPU</span>
-	</button>
-
-	<button
 		onmousedown={async () => {
-			const url = 'RpiTest.jpg';
+			const url = 'FedExLogo.jpg';
 			const res = await fetch(url);
 			image = await createImageBitmap(await res.blob());
 
@@ -243,7 +221,7 @@
 			image_canvas!.height = image.height;
 			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
 
-			const [success, pixels] = await shader_pass(image, colors, base_bandwidth);
+			const [success, pixels] = await run_shader(image, colors, base_bandwidth);
 			if (success) {
 				canvas!.width = image.width;
 				canvas!.height = image.height;
@@ -261,7 +239,7 @@
 	<span>Number of passes: {count}</span>
 </div>
 
-<div class="">
+<div class="flex flex-col">
 	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>

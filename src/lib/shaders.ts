@@ -2,13 +2,11 @@ import { get_median, type Oklab } from './utils';
 import gpu_test_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
 import update_density_scores_shader from '$lib/shaders/update_density_scores.wgsl?raw';
 
-// TODO: rename gpu_test to what it actually does
-// TODO: switch base bandwidth to instead use per-color bandwidths
-/// returns whether the colors changed (used to know whether to increase count)
-
+// TODO: switch run_shader to actually be multiple passes. it should loop passes until the image isn't changing anymore (or is changing below some threshold)
+// TODO: add pass to convert image colors into Oklab, and another to convert it back into rgb
 // TODO: keep density scores as a buffer, don't turn back into number[]
-
-export async function shader_pass(
+/// returns whether the colors changed (used to know whether to increase count)
+export async function run_shader(
 	imageBitMap: ImageBitmap,
 	colors: Oklab[],
 	base_bandwidth: number
@@ -116,8 +114,8 @@ export async function shader_pass(
 		pass.setPipeline(pipeline1);
 		pass.setBindGroup(0, bind_group);
 		pass.dispatchWorkgroups(
-			Math.round(imageBitMap.width / 16),
-			Math.round(imageBitMap.height / 16)
+			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
+			Math.ceil(imageBitMap.height / 16) // divide by 16 to match shader workgroup size
 		);
 		pass.end();
 
@@ -202,8 +200,8 @@ export async function shader_pass(
 		pass.setPipeline(pipeline2);
 		pass.setBindGroup(0, bind_group);
 		pass.dispatchWorkgroups(
-			Math.round(imageBitMap.width / 16),
-			Math.round(imageBitMap.height / 16)
+			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
+			Math.ceil(imageBitMap.height / 16) // divide by 16 to match shader workgroup size
 		);
 		pass.end();
 
