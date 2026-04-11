@@ -14,6 +14,8 @@
 	let uploadedImageUrl = $state();
 	let image: ImageBitmap | undefined = $state();
 
+	let imageUploaded = $state();
+
 	let base_bandwidth = $state(0.7);
 	let cluster_check_radius = $state(20);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
@@ -236,7 +238,7 @@
 
 	<button
 		onmousedown={async () => {
-			const url = 'FedExLogo.jpg';
+			const url = uploadedImageUrl;
 			const res = await fetch(url);
 			image = await createImageBitmap(await res.blob());
 
@@ -269,7 +271,7 @@
 <div class="grid-col-1 grid">
 	<h3>appload your image here</h3>
 	<input type="file" accept=".jpeg, .jpg, .png" onchange={(e) => onFileSelected(e)} />
-	<img src={uploadedImageUrl} />
+	<img src={uploadedImageUrl} bind:this={imageUploaded} />
 </div>
 
 <div class="flex flex-col">
