@@ -72,7 +72,7 @@ export async function shader_pass(
 	});
 
 	device.queue.copyExternalImageToTexture(
-		{ source: imageBitMap, flipY: true },
+		{ source: imageBitMap, flipY: false },
 		{ texture: input_color_texture },
 		{ width: imageBitMap.width, height: imageBitMap.height }
 	);
@@ -115,7 +115,10 @@ export async function shader_pass(
 		});
 		pass.setPipeline(pipeline1);
 		pass.setBindGroup(0, bind_group);
-		pass.dispatchWorkgroups(imageBitMap.width, imageBitMap.height);
+		pass.dispatchWorkgroups(
+			Math.round(imageBitMap.width / 16),
+			Math.round(imageBitMap.height / 16)
+		);
 		pass.end();
 
 		// Encode a command to copy the results to a mappable buffer.
@@ -133,7 +136,7 @@ export async function shader_pass(
 			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
 		});
 		const copy_encoder = device!.createCommandEncoder({ label: 'cluster step copy encoder' });
-		encoder.copyTextureToBuffer(
+		copy_encoder.copyTextureToBuffer(
 			{ texture: output_colors_texture },
 			{ buffer: readback_buffer, bytesPerRow },
 			{ width: imageBitMap.width, height: imageBitMap.height }
@@ -198,7 +201,10 @@ export async function shader_pass(
 		});
 		pass.setPipeline(pipeline2);
 		pass.setBindGroup(0, bind_group);
-		pass.dispatchWorkgroups(imageBitMap.width, imageBitMap.height);
+		pass.dispatchWorkgroups(
+			Math.round(imageBitMap.width / 16),
+			Math.round(imageBitMap.height / 16)
+		);
 		pass.end();
 
 		encoder.copyBufferToBuffer(

@@ -11,9 +11,12 @@
 	} from '$lib/utils';
 	import { shader_pass } from '$lib/shaders';
 
-	let base_bandwidth = $state(0.1);
+	let image: ImageBitmap | undefined = $state();
+
+	let base_bandwidth = $state(0.7);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
+	let canvas_scale = $state(4);
 
 	let num_points = $state(10);
 
@@ -24,6 +27,25 @@
 
 	let colors: Oklab[] = $state([]);
 	let density_scores: number[] = $state([]);
+
+	function apply_canvas_display_scale(target: HTMLCanvasElement | undefined) {
+		if (!image) {
+			return;
+		}
+
+		if (!target) {
+			return;
+		}
+
+		target.style.width = `${image.width * canvas_scale}px`;
+		target.style.height = `${image.height * canvas_scale}px`;
+		target.style.imageRendering = 'pixelated';
+	}
+
+	$effect(() => {
+		apply_canvas_display_scale(canvas);
+		apply_canvas_display_scale(image_canvas);
+	});
 
 	async function randomize_colors() {
 		colors = [];
@@ -167,6 +189,11 @@
 		<input type="range" bind:value={num_points} min="0" max="1000" />
 	</div>
 
+	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
+		<span>Canvas Scale: {canvas_scale}</span>
+		<input type="range" bind:value={canvas_scale} min="1" max="5" />
+	</div>
+
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
 		<span>randomize colors</span>
 	</button>
@@ -206,28 +233,38 @@
 		<span>update density scores WGPU</span>
 	</button>
 
+	<button
+		onmousedown={async () => {
+			const url = 'RpiTest.jpg';
+			const res = await fetch(url);
+			image = await createImageBitmap(await res.blob());
+
+			image_canvas!.width = image.width;
+			image_canvas!.height = image.height;
+			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
+
+			const [success, pixels] = await shader_pass(image, colors, base_bandwidth);
+			if (success) {
+				canvas!.width = image.width;
+				canvas!.height = image.height;
+				const safePixels = new Uint8ClampedArray(new ArrayBuffer(pixels.length));
+				safePixels.set(pixels);
+				const ctx = canvas!.getContext('2d')!;
+				ctx.putImageData(new ImageData(safePixels, image.width, image.height), 0, 0);
+			}
+		}}
+		class="m-2 w-fit cursor-pointer bg-purple-500 p-2"
+	>
+		<span>shader pass</span>
+	</button>
+
 	<span>Number of passes: {count}</span>
 </div>
 
-<button
-	onmousedown={async () => {
-		const url = '';
-		const res = await fetch(url);
-		const image = await createImageBitmap(await res.blob());
-
-		const [success, pixels] = await shader_pass(image, colors, base_bandwidth);
-		if (success) {
-			const safePixels = new Uint8ClampedArray(new ArrayBuffer(pixels.length));
-			safePixels.set(pixels);
-			canvas!
-				.getContext('2d')!
-				.putImageData(new ImageData(safePixels, image.width, image.height), 0, 0);
-		}
-	}}
-	class="m-2 w-fit cursor-pointer bg-red-500 p-2"
->
-	<span>shader pass</span>
-</button>
+<div class="">
+	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
+	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+</div>
 
 <button
 	type="button"
@@ -248,8 +285,3 @@
 		</div>
 	{/each}
 </button>
-
-<div>
-	<canvas bind:this={canvas} class="col-start-1 row-start-1 h-100 w-100"></canvas>
-	<canvas bind:this={image_canvas} class="col-start-1 row-start-1 h-100 w-100"></canvas>
-</div>

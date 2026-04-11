@@ -5,30 +5,28 @@ struct Uniforms {
 
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var input_colors: texture_2d<rgba8unorm>;
-@group(0) @binding(2) var<storage,read_write> input_density_scores: array<vec4<f32>>;
+@group(0) @binding(1) var input_colors: texture_2d<f32>;
+@group(0) @binding(2) var<storage,read_write> input_density_scores: array<f32>;
 @group(0) @binding(3) var output_colors: texture_storage_2d<rgba8unorm, write>;
 
 
-@compute @workgroup_size(64)
-fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let idx = id.x;
-
+@compute @workgroup_size(16, 16)
+fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let dims = textureDimensions(input_colors);
-    let coord = vec2<u32>(idx % dims.x, idx / dims.x);
 
-    if idx >= dims.x * dims.y { return; }
+    if id.x >= dims.x || id.y >= dims.y {return;}
 
-    var color = textureLoad(texture, coord, 0).rgb;
-    var cluster_sum = vec3<f32>(0.0);
+    let index = id.x + dims.x * id.y;
+    let color = textureLoad(input_colors, id.xy, 0).rgb;
+    var cluster_sum = vec3f(0.0);
     var cluster_count = 0u;
 
-    let bandwidth = get_bandwidth(input_density_scores[idx]);
+    let bandwidth = get_bandwidth(input_density_scores[index]);
     let bandwidth_squared = bandwidth * bandwidth;
 
-    for (var i = 0u; i < dims.y; i++) {
-        for (var j = 0u; j < dims.x; j++) {
-            let other = textureLoad(texture, vec2<u32>(j,i), 0).rgb;
+    for (var i = 0u; i < dims.x; i++) {
+        for (var j = 0u; j < dims.y; j++) {
+            let other = textureLoad(input_colors, vec2u(i,j), 0).rgb;
             let delta = color - other;
             let dist_squared = dot(delta, delta);
 
@@ -40,7 +38,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 
     let new_color = cluster_sum / f32(cluster_count);
-    textureStore(output_colors, coord, vec4<f32>(new_color, 1.0));
+    textureStore(output_colors, id.xy, vec4f(new_color, 1.0));
 }
 
 // per-color bandwidth calculation
