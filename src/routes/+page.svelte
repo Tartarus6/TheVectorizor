@@ -268,9 +268,9 @@
 
 	<span>Number of passes: {count}</span>
 </div>
-<div class="grid-col-1 grid">
+<div class="flex w-fit flex-col bg-slate-600 p-2">
 	<h3>appload your image here</h3>
-	<input type="file" accept=".jpeg, .jpg, .png" onchange={(e) => onFileSelected(e)} />
+	<input type="file" accept="image/*" class="bg-blue-500" onchange={(e) => onFileSelected(e)} />
 	{#if uploadedImageUrl}
 		<img src={uploadedImageUrl as string} alt="uploaded" bind:this={imageUploaded} />
 	{/if}
