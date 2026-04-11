@@ -14,9 +14,10 @@
 	let image: ImageBitmap | undefined = $state();
 
 	let base_bandwidth = $state(0.7);
+	let cluster_check_radius = $state(20);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
-	let canvas_scale = $state(4);
+	let canvas_scale = $state(2);
 
 	let num_points = $state(10);
 
@@ -199,6 +200,17 @@
 		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.001} />
 	</div>
 
+	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
+		<span>Cluster Check Radius: {cluster_check_radius}</span>
+		<input
+			type="range"
+			bind:value={cluster_check_radius}
+			min={1}
+			max={image ? Math.max(image.width, image.height) : 250}
+			step={1}
+		/>
+	</div>
+
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
 		<span>randomize colors</span>
 	</button>
@@ -221,7 +233,12 @@
 			image_canvas!.height = image.height;
 			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
 
-			const [success, pixels] = await run_shader(image, colors, base_bandwidth);
+			const [success, pixels] = await run_shader(
+				image,
+				colors,
+				base_bandwidth,
+				cluster_check_radius
+			);
 			if (success) {
 				canvas!.width = image.width;
 				canvas!.height = image.height;

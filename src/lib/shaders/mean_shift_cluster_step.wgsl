@@ -1,5 +1,6 @@
 struct Uniforms {
     base_bandwidth: f32,
+    cluster_check_radius: f32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
     median_density_score: f32,
 }
 
@@ -24,8 +25,13 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let bandwidth = get_bandwidth(input_density_scores[index]);
     let bandwidth_squared = bandwidth * bandwidth;
 
-    for (var i = 0u; i < dims.x; i++) {
-        for (var j = 0u; j < dims.y; j++) {
+    let x0 = select(0u, id.x - u32(uniforms.cluster_check_radius), id.x >= u32(uniforms.cluster_check_radius));
+    let y0 = select(0u, id.y - u32(uniforms.cluster_check_radius), id.y >= u32(uniforms.cluster_check_radius));
+    let x1 = min(dims.x, id.x + u32(uniforms.cluster_check_radius )+ 1u);
+    let y1 = min(dims.y, id.y + u32(uniforms.cluster_check_radius )+ 1u);
+
+    for (var i = x0; i < x1; i++) {
+        for (var j = y0; j < y1; j++) {
             let other = textureLoad(input_colors, vec2u(i,j), 0).rgb;
             let delta = color - other;
             let dist_squared = dot(delta, delta);

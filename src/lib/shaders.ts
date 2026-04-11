@@ -2,14 +2,16 @@ import { get_median, type Oklab } from './utils';
 import gpu_test_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
 import update_density_scores_shader from '$lib/shaders/update_density_scores.wgsl?raw';
 
+// TODO: add image locality weighting to cluster. make closer pixels count more toward the final color
 // TODO: switch run_shader to actually be multiple passes. it should loop passes until the image isn't changing anymore (or is changing below some threshold)
 // TODO: add pass to convert image colors into Oklab, and another to convert it back into rgb
-// TODO: keep density scores as a buffer, don't turn back into number[]
+// TODO: keep density scores as a buffer, don't turn back into number[]. this means that we'll need to somehow switch how we calculate the median density score
 /// returns whether the colors changed (used to know whether to increase count)
 export async function run_shader(
 	imageBitMap: ImageBitmap,
 	colors: Oklab[],
-	base_bandwidth: number
+	base_bandwidth: number,
+	cluster_check_radius: number
 ): Promise<[boolean, Uint8ClampedArray]> {
 	// Set up the GPU resources
 
@@ -80,7 +82,11 @@ export async function run_shader(
 	// mean shift cluster step
 	async function gpu_mean_shift_cluster_step(density_scores: number[]): Promise<Uint8ClampedArray> {
 		const median_density_score = get_median(density_scores);
-		const uniforms_data = new Float32Array([base_bandwidth, median_density_score]);
+		const uniforms_data = new Float32Array([
+			base_bandwidth,
+			cluster_check_radius,
+			median_density_score
+		]);
 
 		const uniforms_buffer = device!.createBuffer({
 			label: 'uniforms buffer',
@@ -162,7 +168,7 @@ export async function run_shader(
 	}
 
 	async function gpu_update_density_scores(base_bandwidth: number): Promise<number[]> {
-		const uniforms_data = new Float32Array([base_bandwidth]);
+		const uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
 
 		// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
 		const readback_buffer = device!.createBuffer({
