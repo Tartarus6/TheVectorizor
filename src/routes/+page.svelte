@@ -11,6 +11,7 @@
 	} from '$lib/utils';
 	import { run_shader } from '$lib/shaders';
 
+	let uploadedImageUrl = $state();
 	let image: ImageBitmap | undefined = $state();
 
 	let base_bandwidth = $state(0.7);
@@ -28,6 +29,16 @@
 
 	let colors: Oklab[] = $state([]);
 	let density_scores: number[] = $state([]);
+
+	const onFileSelected = (e: any) => {
+		let image = e.target.files[0];
+		let reader = new FileReader();
+		reader.readAsDataURL(image);
+		reader.onload = (e) => {
+			uploadedImageUrl = e.target!.result;
+		};
+		console.log(uploadedImageUrl!);
+	};
 
 	function apply_canvas_display_scale(target: HTMLCanvasElement | undefined) {
 		if (!image) {
@@ -254,6 +265,11 @@
 	</button>
 
 	<span>Number of passes: {count}</span>
+</div>
+<div class="grid-col-1 grid">
+	<h3>appload your image here</h3>
+	<input type="file" accept=".jpeg, .jpg, .png" onchange={(e) => onFileSelected(e)} />
+	<img src={uploadedImageUrl} />
 </div>
 
 <div class="flex flex-col">
