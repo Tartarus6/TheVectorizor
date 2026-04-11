@@ -225,7 +225,7 @@
 
 	<button
 		onmousedown={async () => {
-			const url = 'FedExLogo.jpg';
+			const url = 'RpiTest.jpg';
 			const res = await fetch(url);
 			image = await createImageBitmap(await res.blob());
 

@@ -1,11 +1,22 @@
 import { get_median, type Oklab } from './utils';
-import gpu_test_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
+import mean_shift_cluster_step_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
 import update_density_scores_shader from '$lib/shaders/update_density_scores.wgsl?raw';
+import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass.wgsl?raw';
+
+// TODO: move this const somewhere better
+// TODO: figure out what a good value for this const is
+/// each thread in the mean density score passes will be in charge of summing this many elements
+const partial_sum_size: number = 8;
 
 // TODO: add image locality weighting to cluster. make closer pixels count more toward the final color
 // TODO: switch run_shader to actually be multiple passes. it should loop passes until the image isn't changing anymore (or is changing below some threshold)
 // TODO: add pass to convert image colors into Oklab, and another to convert it back into rgb
 // TODO: keep density scores as a buffer, don't turn back into number[]. this means that we'll need to somehow switch how we calculate the median density score
+// TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
+// TODO: have 2 different uniforms buffers (where applicable), one for floats and one for uints
+// TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
+// TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
+// TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
 /// returns whether the colors changed (used to know whether to increase count)
 export async function run_shader(
 	imageBitMap: ImageBitmap,
@@ -13,8 +24,6 @@ export async function run_shader(
 	base_bandwidth: number,
 	cluster_check_radius: number
 ): Promise<[boolean, Uint8ClampedArray]> {
-	// Set up the GPU resources
-
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
@@ -24,44 +33,50 @@ export async function run_shader(
 		alert('need a browser that supports WebGPU');
 		return [false, new Uint8ClampedArray()];
 	}
-	// TODO: rename the modules something more descriptive
-	const module = device.createShaderModule({
-		code: gpu_test_shader
-	});
 
-	const module2 = device.createShaderModule({
-		code: update_density_scores_shader
-	});
-
-	const pipeline1 = device.createComputePipeline({
-		label: 'gpu test compute pipeline',
+	// --- Pipelines ---
+	const update_density_scores_pipeline = device.createComputePipeline({
+		label: 'update density scores compute pipeline',
 		layout: 'auto',
 		compute: {
-			module,
+			module: device.createShaderModule({
+				label: 'update density scores module',
+				code: update_density_scores_shader
+			}),
 			entryPoint: 'cs_main'
 		}
 	});
 
-	const pipeline2 = device.createComputePipeline({
-		label: 'gpu test compute pipeline',
+	const mean_density_score_pipeline = device.createComputePipeline({
+		label: 'mean density score compute pipeline',
 		layout: 'auto',
 		compute: {
-			module: module2,
+			module: device.createShaderModule({
+				label: 'mean density score module',
+				code: mean_density_score_pass_shader
+			}),
 			entryPoint: 'cs_main'
 		}
 	});
 
+	const mean_shift_cluster_pipeline = device.createComputePipeline({
+		label: 'mean shift cluster compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean shift cluster module',
+				code: mean_shift_cluster_step_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
+	// --- Shared Textures ---
 	const input_color_texture = device.createTexture({
 		label: 'input color texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-	});
-
-	const density_scores_buffer = device.createBuffer({
-		label: 'output buffer',
-		size: imageBitMap.width * imageBitMap.height * 4,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 
 	const output_colors_texture = device.createTexture({
@@ -72,21 +87,25 @@ export async function run_shader(
 	});
 
 	device.queue.copyExternalImageToTexture(
-		{ source: imageBitMap, flipY: false },
+		{ source: imageBitMap },
 		{ texture: input_color_texture },
 		{ width: imageBitMap.width, height: imageBitMap.height }
 	);
 
-	// This is where the specific functions starts ----------------------------------
+	// --- Shared Buffers ---
+	const density_scores_buffer = device.createBuffer({
+		label: 'density scores buffer',
+		size: imageBitMap.width * imageBitMap.height * 4,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
 
-	// mean shift cluster step
-	async function gpu_mean_shift_cluster_step(density_scores: number[]): Promise<Uint8ClampedArray> {
-		const median_density_score = get_median(density_scores);
-		const uniforms_data = new Float32Array([
-			base_bandwidth,
-			cluster_check_radius,
-			median_density_score
-		]);
+	// --- Density Scores Pass ---
+	async function density_scores_pass() {
+		// struct Uniforms {
+		// 	  base_bandwidth: f32,
+		// 	  cluster_check_radius: f32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+		// }
+		const uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
 
 		const uniforms_buffer = device!.createBuffer({
 			label: 'uniforms buffer',
@@ -97,8 +116,159 @@ export async function run_shader(
 		// Setup a bindGroup to tell the shader which
 		// buffer to use for the computation
 		const bind_group = device!.createBindGroup({
-			label: 'gpu test bind group',
-			layout: pipeline1.getBindGroupLayout(0),
+			label: 'update density scores bind group',
+			layout: update_density_scores_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: uniforms_buffer },
+				{ binding: 1, resource: input_color_texture.createView() },
+				{ binding: 2, resource: density_scores_buffer }
+			]
+		});
+		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+		// Encode commands to do the computation
+		const encoder = device!.createCommandEncoder({
+			label: 'update density scores encoder'
+		});
+		const pass = encoder.beginComputePass({
+			label: 'update density scores compute pass'
+		});
+		pass.setPipeline(update_density_scores_pipeline);
+		pass.setBindGroup(0, bind_group);
+		pass.dispatchWorkgroups(
+			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
+			Math.ceil(imageBitMap.height / 16) // divide by 16 to match shader workgroup size
+		);
+		pass.end();
+
+		// Finish encoding and submit the commands
+		const command_buffer = encoder.finish();
+		device!.queue.submit([command_buffer]);
+	}
+
+	// --- Mean Density Score Passes ---
+	async function get_mean_density_score(): Promise<number> {
+		// struct Uniforms {
+		//     partial_sum_size: u32,         /// each thread will be in charge of summing this many elements
+		//     num_remaining_elements: u32,   /// how many elements exist in `in_partial_sums`
+		// }
+		var uniforms_data = new Uint32Array([partial_sum_size, imageBitMap.width * imageBitMap.height]);
+
+		const uniforms_buffer = device!.createBuffer({
+			label: 'median density uniforms buffer',
+			size: uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		const in_partial_sums_buffer = device!.createBuffer({
+			label: 'mean density partial sums buffer',
+			size: density_scores_buffer.size, // same size as density scores buffer
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+		});
+
+		const out_partial_sums_buffer = device!.createBuffer({
+			label: 'mean density partial sums buffer',
+			size: density_scores_buffer.size, // same size as density scores buffer
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+		});
+
+		// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
+		const readback_buffer = device!.createBuffer({
+			label: 'median density readback buffer',
+			size: density_scores_buffer.size,
+			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+		});
+
+		// Setup a bindGroup to tell the shader which
+		// buffer to use for the computation
+		const bind_group = device!.createBindGroup({
+			label: 'median density bind group',
+			layout: mean_density_score_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: uniforms_buffer },
+				{ binding: 1, resource: in_partial_sums_buffer },
+				{ binding: 2, resource: out_partial_sums_buffer }
+			]
+		});
+		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+		// Encode commands to do the computation
+		const encoder = device!.createCommandEncoder({
+			label: 'median density encoder'
+		});
+
+		// initialize the in_partial_sums_buffer with the density scores
+		encoder.copyBufferToBuffer(density_scores_buffer, 0, in_partial_sums_buffer, 0);
+
+		let num_remaining_elements = imageBitMap.width * imageBitMap.height;
+		while (num_remaining_elements > 1) {
+			// Update the total_elements in the uniforms buffer
+			uniforms_data[1] = num_remaining_elements;
+			device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+			// update total elements (the pass hasn't happened yet, but i need this value for dispatching. so it's calculated early)
+			num_remaining_elements = Math.ceil(num_remaining_elements / partial_sum_size);
+
+			const pass = encoder.beginComputePass({
+				label: 'median density compute pass'
+			});
+			pass.setPipeline(mean_density_score_pipeline);
+			pass.setBindGroup(0, bind_group);
+			pass.dispatchWorkgroups(
+				Math.ceil(num_remaining_elements / 256) // divide by 256 to match shader workgroup size
+			);
+			pass.end();
+
+			if (num_remaining_elements > 1) {
+				// TODO: does this actually work? does this properly copy to the buffer so that the shader has the new data?
+				// set up the output of this pass to be the input to the next pass
+				encoder.copyBufferToBuffer(out_partial_sums_buffer, 0, in_partial_sums_buffer, 0);
+			}
+		}
+
+		encoder.copyBufferToBuffer(out_partial_sums_buffer, 0, readback_buffer, 0);
+
+		// Finish encoding and submit the commands
+		const command_buffer = encoder.finish();
+		device!.queue.submit([command_buffer]);
+		await readback_buffer.mapAsync(GPUMapMode.READ);
+		const result = new Float32Array(readback_buffer.getMappedRange().slice());
+
+		const median_density_score = result[0] / (imageBitMap.width * imageBitMap.height);
+
+		readback_buffer.unmap();
+
+		console.log();
+		console.log('WGPU Mean Density Score');
+		console.log(median_density_score);
+
+		return median_density_score;
+	}
+
+	// --- Mean Shift Cluster Pass ---
+	async function mean_shift_cluster_pass(median_density_score: number): Promise<Uint8ClampedArray> {
+		// struct Uniforms {
+		// 	  base_bandwidth: f32,
+		// 	  cluster_check_radius: f32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+		// 	  median_density_score: f32,
+		// }
+		const uniforms_data = new Float32Array([
+			base_bandwidth,
+			cluster_check_radius,
+			median_density_score
+		]);
+
+		const uniforms_buffer = device!.createBuffer({
+			label: 'mean shift cluster uniforms buffer',
+			size: uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		// Setup a bindGroup to tell the shader which
+		// buffer to use for the computation
+		const bind_group = device!.createBindGroup({
+			label: 'mean shift cluster bind group',
+			layout: mean_shift_cluster_pipeline.getBindGroupLayout(0),
 			entries: [
 				{ binding: 0, resource: uniforms_buffer },
 				{ binding: 1, resource: input_color_texture.createView() },
@@ -112,12 +282,12 @@ export async function run_shader(
 
 		// Encode commands to do the computation
 		const encoder = device!.createCommandEncoder({
-			label: 'gpu test encoder'
+			label: 'mean shift cluster encoder'
 		});
 		const pass = encoder.beginComputePass({
-			label: 'gpu test compute pass'
+			label: 'mean shift cluster compute pass'
 		});
-		pass.setPipeline(pipeline1);
+		pass.setPipeline(mean_shift_cluster_pipeline);
 		pass.setBindGroup(0, bind_group);
 		pass.dispatchWorkgroups(
 			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
@@ -167,80 +337,7 @@ export async function run_shader(
 		return pixels;
 	}
 
-	async function gpu_update_density_scores(base_bandwidth: number): Promise<number[]> {
-		const uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
-
-		// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
-		const readback_buffer = device!.createBuffer({
-			label: 'readback buffer',
-			size: density_scores_buffer.size,
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-		});
-
-		const uniforms_buffer = device!.createBuffer({
-			label: 'uniforms buffer',
-			size: uniforms_data.byteLength,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		});
-
-		// Setup a bindGroup to tell the shader which
-		// buffer to use for the computation
-		const bind_group = device!.createBindGroup({
-			label: 'update density scores bind group',
-			layout: pipeline2.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: uniforms_buffer },
-				{ binding: 1, resource: input_color_texture.createView() },
-				{ binding: 2, resource: density_scores_buffer }
-			]
-		});
-		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
-
-		// Encode commands to do the computation
-		const encoder = device!.createCommandEncoder({
-			label: 'update density scores encoder'
-		});
-		const pass = encoder.beginComputePass({
-			label: 'update density scores compute pass'
-		});
-		pass.setPipeline(pipeline2);
-		pass.setBindGroup(0, bind_group);
-		pass.dispatchWorkgroups(
-			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
-			Math.ceil(imageBitMap.height / 16) // divide by 16 to match shader workgroup size
-		);
-		pass.end();
-
-		encoder.copyBufferToBuffer(
-			density_scores_buffer,
-			0,
-			readback_buffer,
-			0,
-			density_scores_buffer.size
-		);
-
-		// Finish encoding and submit the commands
-		const command_buffer = encoder.finish();
-		device!.queue.submit([command_buffer]);
-		await readback_buffer.mapAsync(GPUMapMode.READ);
-		const result = new Float32Array(readback_buffer.getMappedRange().slice());
-
-		const density_scores: number[] = [];
-		for (let i = 0; i < colors.length; i++) {
-			const density_score = result[i];
-			density_scores.push(density_score);
-		}
-
-		readback_buffer.unmap();
-
-		console.log();
-		console.log('WGPU Density Scores');
-		console.log(density_scores);
-
-		return density_scores;
-	}
-	// end of the shader BS calling everything now
-
-	const density_scores = await gpu_update_density_scores(base_bandwidth);
-	return [true, await gpu_mean_shift_cluster_step(density_scores)];
+	await density_scores_pass();
+	const median_density_score = await get_mean_density_score();
+	return [true, await mean_shift_cluster_pass(median_density_score)];
 }
