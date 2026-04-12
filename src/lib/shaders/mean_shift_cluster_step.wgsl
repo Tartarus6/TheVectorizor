@@ -18,6 +18,7 @@ struct UintUniforms {
 @group(0) @binding(4) var output_colors: texture_storage_2d<rgba8unorm, write>;
 
 
+// TODO: handle transparent pixels
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let dims = textureDimensions(input_colors);
@@ -33,9 +34,6 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     var cluster_sum = vec4f(0.0);
     var cluster_count = 0u;
 
-    // if pixel is fully transparent, return
-    if (color.a == 0.0) {return;}
-
     let bandwidth = get_bandwidth(input_density_scores[index]);
     let bandwidth_squared = bandwidth * bandwidth;
 
@@ -46,9 +44,6 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     for (var i = x0; i < x1; i++) {
         for (var j = y0; j < y1; j++) {
             let other = textureLoad(input_colors, vec2u(i,j), 0);
-
-            // if other pixel is fully transparent, continue
-            if (other.a == 0.0) {continue;}
 
             let delta = color - other;
             let dist_squared = dot(delta, delta);

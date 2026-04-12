@@ -15,6 +15,7 @@ struct UintUniforms {
 @group(0) @binding(3) var<storage,read_write> output_density_scores: array<f32>;
 
 
+// TODO: handle transparent pixels (need to somehow count how many non-transparent pixels there are, so that we divide by the right number to get the mean)
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let dims = textureDimensions(input_colors);
@@ -25,7 +26,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     if pos.x >= dims.x || pos.y >= dims.y {return;}
 
     let index = pos.x + dims.x * pos.y;
-    let color = textureLoad(input_colors, pos, 0).rgb;
+    let color = textureLoad(input_colors, pos, 0);
     var density_score: f32 = 0f;
 
     let BANDWIDTH_SQUARED = float_uniforms.base_bandwidth * float_uniforms.base_bandwidth;
@@ -38,7 +39,8 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
         for (var j = y0; j < y1; j++) {
             if (i == pos.x && j == pos.y) {continue;}
 
-            let other = textureLoad(input_colors, vec2u(i, j), 0).rgb;
+            let other = textureLoad(input_colors, vec2u(i, j), 0);
+
             let delta = color - other;
             let dist_squared = dot(delta, delta);
 
