@@ -17,12 +17,14 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 // TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
+// TODO: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 /// returns whether the colors changed (used to know whether to increase count)
 export async function run_shader(
 	imageBitMap: ImageBitmap,
 	colors: Oklab[],
 	base_bandwidth: number,
-	cluster_check_radius: number
+	cluster_check_radius: number,
+	tile_size: number
 ): Promise<[boolean, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
@@ -103,13 +105,26 @@ export async function run_shader(
 	async function density_scores_pass() {
 		// struct Uniforms {
 		// 	  base_bandwidth: f32,
-		// 	  cluster_check_radius: f32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
 		// }
-		const uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
+		const float_uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
 
-		const uniforms_buffer = device!.createBuffer({
-			label: 'uniforms buffer',
-			size: uniforms_data.byteLength,
+		// struct UintUniforms {
+		// 	  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+		// 	  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
+		// 	  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
+		// 	  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
+		// }
+		const uint_uniforms_data = new Uint32Array([cluster_check_radius, 0, 0, tile_size]);
+
+		const float_uniforms_buffer = device!.createBuffer({
+			label: 'float uniforms buffer',
+			size: float_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		const uint_uniforms_buffer = device!.createBuffer({
+			label: 'uint uniforms buffer',
+			size: uint_uniforms_data.byteLength,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 		});
 
@@ -119,31 +134,43 @@ export async function run_shader(
 			label: 'update density scores bind group',
 			layout: update_density_scores_pipeline.getBindGroupLayout(0),
 			entries: [
-				{ binding: 0, resource: uniforms_buffer },
-				{ binding: 1, resource: input_color_texture.createView() },
-				{ binding: 2, resource: density_scores_buffer }
+				{ binding: 0, resource: float_uniforms_buffer },
+				{ binding: 1, resource: uint_uniforms_buffer },
+				{ binding: 2, resource: input_color_texture.createView() },
+				{ binding: 3, resource: density_scores_buffer }
 			]
 		});
-		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+		device!.queue.writeBuffer(float_uniforms_buffer, 0, float_uniforms_data);
 
-		// Encode commands to do the computation
-		const encoder = device!.createCommandEncoder({
-			label: 'update density scores encoder'
-		});
-		const pass = encoder.beginComputePass({
-			label: 'update density scores compute pass'
-		});
-		pass.setPipeline(update_density_scores_pipeline);
-		pass.setBindGroup(0, bind_group);
-		pass.dispatchWorkgroups(
-			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
-			Math.ceil(imageBitMap.height / 16) // divide by 16 to match shader workgroup size
-		);
-		pass.end();
+		for (let tile_x = 0; tile_x < imageBitMap.width; tile_x += tile_size) {
+			for (let tile_y = 0; tile_y < imageBitMap.height; tile_y += tile_size) {
+				// update the uint uniforms buffer for this pass
+				uint_uniforms_data[1] = tile_x;
+				uint_uniforms_data[2] = tile_y;
+				device!.queue.writeBuffer(uint_uniforms_buffer, 0, uint_uniforms_data);
 
-		// Finish encoding and submit the commands
-		const command_buffer = encoder.finish();
-		device!.queue.submit([command_buffer]);
+				// Encode commands to do the computation
+				const encoder = device!.createCommandEncoder({
+					label: 'update density scores encoder'
+				});
+				const pass = encoder.beginComputePass({
+					label: 'update density scores compute pass'
+				});
+				pass.setPipeline(update_density_scores_pipeline);
+				pass.setBindGroup(0, bind_group);
+				pass.dispatchWorkgroups(
+					Math.ceil(tile_size / 16), // divide by 16 to match shader workgroup size
+					Math.ceil(tile_size / 16) // divide by 16 to match shader workgroup size
+				);
+				pass.end();
+
+				device!.queue.submit([encoder.finish()]);
+
+				// cooperative pacing: prevents long uninterrupted GPU queue bursts
+				await device!.queue.onSubmittedWorkDone();
+				await new Promise((r) => setTimeout(r, 0));
+			}
+		}
 	}
 
 	// --- Mean Density Score Passes ---
@@ -200,6 +227,7 @@ export async function run_shader(
 		// initialize the in_partial_sums_buffer with the density scores
 		encoder.copyBufferToBuffer(density_scores_buffer, 0, in_partial_sums_buffer, 0);
 
+		// TODO: this should be broken up into multiple passes. its a lot less important than the other shaders, but at larger image sizes this can still cause hitching
 		let num_remaining_elements = imageBitMap.width * imageBitMap.height;
 		while (num_remaining_elements > 1) {
 			// Update the total_elements in the uniforms buffer
@@ -247,20 +275,29 @@ export async function run_shader(
 
 	// --- Mean Shift Cluster Pass ---
 	async function mean_shift_cluster_pass(median_density_score: number): Promise<Uint8ClampedArray> {
-		// struct Uniforms {
+		// struct FloatUniforms {
 		// 	  base_bandwidth: f32,
-		// 	  cluster_check_radius: f32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
 		// 	  median_density_score: f32,
 		// }
-		const uniforms_data = new Float32Array([
-			base_bandwidth,
-			cluster_check_radius,
-			median_density_score
-		]);
+		const float_uniforms_data = new Float32Array([base_bandwidth, median_density_score]);
 
-		const uniforms_buffer = device!.createBuffer({
-			label: 'mean shift cluster uniforms buffer',
-			size: uniforms_data.byteLength,
+		// struct UintUniforms {
+		// 	  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+		// 	  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
+		// 	  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
+		// 	  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
+		// }
+		const uint_uniforms_data = new Uint32Array([cluster_check_radius, 0, 0, tile_size]);
+
+		const float_uniforms_buffer = device!.createBuffer({
+			label: 'mean shift cluster float uniforms buffer',
+			size: float_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		const uint_uniforms_buffer = device!.createBuffer({
+			label: 'mean shift cluster uint uniforms buffer',
+			size: uint_uniforms_data.byteLength,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 		});
 
@@ -270,36 +307,46 @@ export async function run_shader(
 			label: 'mean shift cluster bind group',
 			layout: mean_shift_cluster_pipeline.getBindGroupLayout(0),
 			entries: [
-				{ binding: 0, resource: uniforms_buffer },
-				{ binding: 1, resource: input_color_texture.createView() },
-				{ binding: 2, resource: density_scores_buffer },
-				{ binding: 3, resource: output_colors_texture.createView() }
+				{ binding: 0, resource: float_uniforms_buffer },
+				{ binding: 1, resource: uint_uniforms_buffer },
+				{ binding: 2, resource: input_color_texture.createView() },
+				{ binding: 3, resource: density_scores_buffer },
+				{ binding: 4, resource: output_colors_texture.createView() }
 			]
 		});
 
 		// Copy our input data to input buffers
-		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+		device!.queue.writeBuffer(float_uniforms_buffer, 0, float_uniforms_data);
 
-		// Encode commands to do the computation
-		const encoder = device!.createCommandEncoder({
-			label: 'mean shift cluster encoder'
-		});
-		const pass = encoder.beginComputePass({
-			label: 'mean shift cluster compute pass'
-		});
-		pass.setPipeline(mean_shift_cluster_pipeline);
-		pass.setBindGroup(0, bind_group);
-		pass.dispatchWorkgroups(
-			Math.ceil(imageBitMap.width / 16), // divide by 16 to match shader workgroup size
-			Math.ceil(imageBitMap.height / 16) // divide by 16 to match shader workgroup size
-		);
-		pass.end();
+		for (let tile_x = 0; tile_x < imageBitMap.width; tile_x += tile_size) {
+			for (let tile_y = 0; tile_y < imageBitMap.height; tile_y += tile_size) {
+				// update the uint uniforms buffer for this pass
+				uint_uniforms_data[1] = tile_x;
+				uint_uniforms_data[2] = tile_y;
+				device!.queue.writeBuffer(uint_uniforms_buffer, 0, uint_uniforms_data);
 
-		// Encode a command to copy the results to a mappable buffer.
+				// Encode commands to do the computation
+				const encoder = device!.createCommandEncoder({
+					label: 'mean shift cluster encoder'
+				});
+				const pass = encoder.beginComputePass({
+					label: 'mean shift cluster compute pass'
+				});
+				pass.setPipeline(mean_shift_cluster_pipeline);
+				pass.setBindGroup(0, bind_group);
+				pass.dispatchWorkgroups(
+					Math.ceil(tile_size / 16), // divide by 16 to match shader workgroup size
+					Math.ceil(tile_size / 16) // divide by 16 to match shader workgroup size
+				);
+				pass.end();
 
-		// Finish encoding and submit the commands
-		const commandBuffer = encoder.finish();
-		device!.queue.submit([commandBuffer]);
+				device!.queue.submit([encoder.finish()]);
+
+				// cooperative pacing: prevents long uninterrupted GPU queue bursts
+				await device!.queue.onSubmittedWorkDone();
+				await new Promise((r) => setTimeout(r, 0));
+			}
+		}
 
 		// add padding because reading from a texture to a buffer needs multiples of 256 ??? god I hate shaders
 		const bytesPerRow = Math.ceil((imageBitMap.width * 4) / 256) * 256;
