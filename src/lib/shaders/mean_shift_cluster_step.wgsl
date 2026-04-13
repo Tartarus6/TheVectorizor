@@ -1,6 +1,7 @@
 struct FloatUniforms {
     base_bandwidth: f32,
-    median_density_score: f32,
+    mean_density_score: f32,
+    alpha: f32, /// controls how strongly the density matters
 }
 
 struct UintUniforms {
@@ -45,7 +46,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
         for (var j = y0; j < y1; j++) {
             let other = textureLoad(input_colors, vec2u(i,j), 0);
 
-            let delta = color - other;
+            let delta = color.xyz - other.xyz;
             let dist_squared = dot(delta, delta);
 
             if dist_squared < bandwidth_squared {
@@ -60,15 +61,15 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     textureStore(output_colors, pos, vec4f(new_color));
 }
 
+
 // per-color bandwidth calculation
 fn get_bandwidth(density_score: f32) -> f32 {
-    const alpha = 0.35; // controls how strongly the density matters
     const epsilon = 0.000001; // prevents divide by zero
     const min_mult = 0.1;
     const max_mult = 2.0;
 
-    return (
-        float_uniforms.base_bandwidth *
-        clamp(pow(float_uniforms.median_density_score / (density_score + epsilon), alpha), min_mult, max_mult)
-    );
+    // let mult = clamp(pow(float_uniforms.mean_density_score / (density_score + epsilon), alpha), min_mult, max_mult);
+    let mult = clamp(pow(float_uniforms.mean_density_score / (density_score + epsilon), float_uniforms.alpha), min_mult, max_mult);
+
+    return float_uniforms.base_bandwidth * mult;
 }

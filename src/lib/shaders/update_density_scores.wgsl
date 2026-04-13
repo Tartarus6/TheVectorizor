@@ -38,7 +38,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     for (var i = x0; i < x1; i++) {
         for (var j = y0; j < y1; j++) {
             // dont compare the pixel to itsself
-            if (i == pos.x && j == pos.y) {continue;}
+            // if (i == pos.x && j == pos.y) {continue;}
 
             let other = textureLoad(input_colors, vec2u(i, j), 0);
 
