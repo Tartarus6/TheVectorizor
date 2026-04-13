@@ -1,15 +1,31 @@
 import { get_median, type Oklab } from './utils';
-import gpu_test_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
+import mean_shift_cluster_step_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
 import update_density_scores_shader from '$lib/shaders/update_density_scores.wgsl?raw';
+import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass.wgsl?raw';
+import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
+import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 
-// TODO: rename gpu_test to what it actually does
-// TODO: switch base bandwidth to instead use per-color bandwidths
+// TODO: move this const somewhere better
+// TODO: figure out what a good value for this const is
+/// each thread in the mean density score passes will be in charge of summing this many elements
+const partial_sum_size: number = 8;
+
+// TODO: add image locality weighting to cluster. make closer pixels count more toward the final color
+// TODO: switch run_shader to actually be multiple passes. it should loop passes until the image isn't changing anymore (or is changing below some threshold)
+// TODO: add pass to convert image colors into Oklab, and another to convert it back into rgb
+// TODO: keep density scores as a buffer, don't turn back into number[]. this means that we'll need to somehow switch how we calculate the median density score
+// TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
+// TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
+// TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
+// TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
+// TODO: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 /// returns whether the colors changed (used to know whether to increase count)
-export async function gpu_mean_shift_cluster_step(
-	colors: Oklab[],
-	density_scores: number[],
-	base_bandwidth: number
-): Promise<[boolean, Oklab[]]> {
+export async function run_shader(
+	imageBitMap: ImageBitmap,
+	base_bandwidth: number,
+	cluster_check_radius: number,
+	tile_size: number
+): Promise<[boolean, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
@@ -17,268 +33,478 @@ export async function gpu_mean_shift_cluster_step(
 	if (!device) {
 		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
-		return [false, colors];
+		return [false, new Uint8ClampedArray()];
 	}
 
-	const module = device.createShaderModule({
-		code: gpu_test_shader
-	});
-
-	const pipeline = device.createComputePipeline({
-		label: 'gpu test compute pipeline',
-		layout: 'auto',
-		compute: {
-			module,
-			entryPoint: 'cs_main'
-		}
-	});
-
-	const input_colors_data = new Float32Array(colors.length * 4);
-	const input_density_scores_data = new Float32Array(colors.length);
-
-	for (let i = 0; i < colors.length; i++) {
-		// colors data
-		input_colors_data[i * 4 + 0] = colors[i].L;
-		input_colors_data[i * 4 + 1] = colors[i].a + 0.5;
-		input_colors_data[i * 4 + 2] = colors[i].b + 0.5;
-		input_colors_data[i * 4 + 3] = 0;
-
-		// density scores data
-		input_density_scores_data[i] = density_scores[i];
-	}
-
-	// create a buffer on the GPU to hold our computation
-	// input and output
-	const input_colors_buffer = device.createBuffer({
-		label: 'input colors buffer',
-		size: input_colors_data.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
-	});
-
-	/// size in bytes of the output buffer
-	const density_scores_buffer_size = colors.length * 4;
-
-	// create a buffer on the GPU to get a copy of the results
-	const input_density_scores_buffer = device.createBuffer({
-		label: 'input density scores buffer',
-		size: input_density_scores_data.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
-	});
-
-	// create a buffer on the GPU to get a copy of the results
-	const output_colors_buffer = device.createBuffer({
-		label: 'output buffer',
-		size: input_colors_data.byteLength, // same size as input colors buffer
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-	});
-
-	/// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
-	const readback_buffer = device.createBuffer({
-		label: 'readback buffer',
-		size: input_colors_data.byteLength,
-		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-	});
-
-	const median_density_score = get_median(density_scores);
-	const uniforms_data = new Float32Array([base_bandwidth, median_density_score]);
-
-	const uniforms_buffer = device.createBuffer({
-		label: 'uniforms buffer',
-		size: uniforms_data.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-
-	// Setup a bindGroup to tell the shader which
-	// buffer to use for the computation
-	const bind_group = device.createBindGroup({
-		label: 'gpu test bind group',
-		layout: pipeline.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: uniforms_buffer },
-			{ binding: 1, resource: input_colors_buffer },
-			{ binding: 2, resource: input_density_scores_buffer },
-			{ binding: 3, resource: output_colors_buffer }
-		]
-	});
-
-	// Copy our input data to input buffers
-	device.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
-	device.queue.writeBuffer(input_colors_buffer, 0, input_colors_data);
-	device.queue.writeBuffer(input_density_scores_buffer, 0, input_density_scores_data);
-
-	// Encode commands to do the computation
-	const encoder = device.createCommandEncoder({
-		label: 'gpu test encoder'
-	});
-	const pass = encoder.beginComputePass({
-		label: 'gpu test compute pass'
-	});
-	pass.setPipeline(pipeline);
-	pass.setBindGroup(0, bind_group);
-	pass.dispatchWorkgroups(input_colors_data.length);
-	pass.end();
-
-	// Encode a command to copy the results to a mappable buffer.
-	encoder.copyBufferToBuffer(
-		output_colors_buffer,
-		0,
-		readback_buffer,
-		0,
-		output_colors_buffer.size
-	);
-
-	// Finish encoding and submit the commands
-	const commandBuffer = encoder.finish();
-	device.queue.submit([commandBuffer]);
-
-	// Read the results
-	await readback_buffer.mapAsync(GPUMapMode.READ);
-	const result = new Float32Array(readback_buffer.getMappedRange().slice());
-
-	let the_same = true;
-	const new_colors: Oklab[] = [];
-	for (let i = 0; i < colors.length; i++) {
-		const L = result[i * 4 + 0];
-		const a = result[i * 4 + 1] - 0.5;
-		const b = result[i * 4 + 2] - 0.5;
-		new_colors.push({ L, a, b });
-		if (L !== colors[i].L || a !== colors[i].a || b !== colors[i].b) {
-			the_same = false;
-		}
-	}
-
-	readback_buffer.unmap();
-
-	if (!the_same) {
-		return [true, new_colors];
-	}
-	return [false, colors];
-}
-
-// TODO: keep density scores as a buffer, don't turn back into number[]
-export async function gpu_update_density_scores(
-	colors: Oklab[],
-	base_bandwidth: number
-): Promise<number[]> {
-	const adapter = await navigator.gpu?.requestAdapter();
-	const device = await adapter?.requestDevice();
-
-	if (!device) {
-		// TODO: add an actual warning for this on the site, popup or whatever
-		alert('need a browser that supports WebGPU');
-		return [];
-	}
-
-	const module = device.createShaderModule({
-		code: update_density_scores_shader
-	});
-
-	const pipeline = device.createComputePipeline({
+	// --- Pipelines ---
+	const update_density_scores_pipeline = device.createComputePipeline({
 		label: 'update density scores compute pipeline',
 		layout: 'auto',
 		compute: {
-			module,
+			module: device.createShaderModule({
+				label: 'update density scores module',
+				code: update_density_scores_shader
+			}),
 			entryPoint: 'cs_main'
 		}
 	});
 
-	const input_colors_data = new Float32Array(colors.length * 4);
-
-	for (let i = 0; i < colors.length; i++) {
-		input_colors_data[i * 4 + 0] = colors[i].L;
-		input_colors_data[i * 4 + 1] = colors[i].a + 0.5;
-		input_colors_data[i * 4 + 2] = colors[i].b + 0.5;
-		input_colors_data[i * 4 + 3] = 0;
-	}
-
-	// create a buffer on the GPU to hold our computation
-	// input and output
-	const input_colors_buffer = device.createBuffer({
-		label: 'input colors buffer',
-		size: input_colors_data.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+	const mean_density_score_pipeline = device.createComputePipeline({
+		label: 'mean density score compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean density score module',
+				code: mean_density_score_pass_shader
+			}),
+			entryPoint: 'cs_main'
+		}
 	});
-	// Copy our input data to that buffer
 
-	/// size in bytes of the output buffer
-	const output_buffer_size = colors.length * 4;
+	const mean_shift_cluster_pipeline = device.createComputePipeline({
+		label: 'mean shift cluster compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean shift cluster module',
+				code: mean_shift_cluster_step_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
 
-	// create a buffer on the GPU to get a copy of the results
-	const output_density_scores_buffer = device.createBuffer({
-		label: 'output buffer',
-		size: output_buffer_size,
+	const srgb_to_oklab_module = device.createShaderModule({
+		label: 'srgb to oklab module',
+		code: srgb_to_oklab_shader
+	});
+	const srgb_to_oklab_pipeline = device.createRenderPipeline({
+		label: 'srgb to oklab render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: srgb_to_oklab_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: srgb_to_oklab_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
+
+	const oklab_to_srgb_module = device.createShaderModule({
+		label: 'oklab to srgb module',
+		code: oklab_to_srgb_shader
+	});
+	const oklab_to_srgb_pipeline = device.createRenderPipeline({
+		label: 'oklab to srgb render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: oklab_to_srgb_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: oklab_to_srgb_module,
+			targets: [
+				{
+					format: 'rgba8unorm'
+				}
+			]
+		}
+	});
+
+	// --- Shared Textures ---
+	const input_srgb_texture = device.createTexture({
+		label: 'input srgb texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba8unorm',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+	});
+
+	const input_oklab_texture = device.createTexture({
+		label: 'input oklab texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
+	});
+
+	const output_oklab_texture = device.createTexture({
+		label: 'output oklab texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+	});
+
+	const output_srgb_texture = device.createTexture({
+		label: 'output srgb texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba8unorm',
+		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+	});
+
+	// --- Shared Buffers ---
+	const density_scores_buffer = device.createBuffer({
+		label: 'density scores buffer',
+		size: imageBitMap.width * imageBitMap.height * 4,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 
-	/// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
-	const readback_buffer = device.createBuffer({
-		label: 'readback buffer',
-		size: output_buffer_size,
-		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-	});
+	// --- sRGB to OkLab Pass ---
+	async function srgb_to_oklab_pass() {
+		device!.queue.copyExternalImageToTexture(
+			{ source: imageBitMap },
+			{ texture: input_srgb_texture },
+			{ width: imageBitMap.width, height: imageBitMap.height }
+		);
 
-	const uniforms_data = new Float32Array([base_bandwidth]);
+		const bind_group = device!.createBindGroup({
+			label: 'srgb to oklab bind group',
+			layout: srgb_to_oklab_pipeline.getBindGroupLayout(0),
+			entries: [{ binding: 0, resource: input_srgb_texture.createView() }]
+		});
 
-	const uniforms_buffer = device.createBuffer({
-		label: 'uniforms buffer',
-		size: uniforms_data.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
+		const encoder = device!.createCommandEncoder({ label: 'srgb to oklab encoder' });
+		const pass = encoder.beginRenderPass({
+			label: 'srgb to oklab render pass',
+			colorAttachments: [
+				{
+					view: input_oklab_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
 
-	// Setup a bindGroup to tell the shader which
-	// buffer to use for the computation
-	const bind_group = device.createBindGroup({
-		label: 'update density scores bind group',
-		layout: pipeline.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: uniforms_buffer },
-			{ binding: 1, resource: input_colors_buffer },
-			{ binding: 2, resource: output_density_scores_buffer }
-		]
-	});
-	device.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
-	device.queue.writeBuffer(input_colors_buffer, 0, input_colors_data);
+		pass.setPipeline(srgb_to_oklab_pipeline);
+		pass.setBindGroup(0, bind_group);
+		pass.draw(3);
+		pass.end();
 
-	// Encode commands to do the computation
-	const encoder = device.createCommandEncoder({
-		label: 'update density scores encoder'
-	});
-	const pass = encoder.beginComputePass({
-		label: 'update density scores compute pass'
-	});
-	pass.setPipeline(pipeline);
-	pass.setBindGroup(0, bind_group);
-	pass.dispatchWorkgroups(input_colors_data.length);
-	pass.end();
-
-	// Encode a command to copy the results to a mappable buffer.
-	encoder.copyBufferToBuffer(
-		output_density_scores_buffer,
-		0,
-		readback_buffer,
-		0,
-		output_density_scores_buffer.size
-	);
-
-	// Finish encoding and submit the commands
-	const command_buffer = encoder.finish();
-	device.queue.submit([command_buffer]);
-
-	// Read the results
-	await readback_buffer.mapAsync(GPUMapMode.READ);
-	const result = new Float32Array(readback_buffer.getMappedRange().slice());
-
-	const density_scores: number[] = [];
-	for (let i = 0; i < colors.length; i++) {
-		const density_score = result[i];
-		density_scores.push(density_score);
+		device!.queue.submit([encoder.finish()]);
+		await device!.queue.onSubmittedWorkDone();
 	}
 
-	readback_buffer.unmap();
+	// --- OkLab to sRGB Pass ---
+	async function oklab_to_srgb_pass(): Promise<Uint8ClampedArray> {
+		const bind_group = device!.createBindGroup({
+			label: 'oklab to srgb bind group',
+			layout: oklab_to_srgb_pipeline.getBindGroupLayout(0),
+			entries: [{ binding: 0, resource: output_oklab_texture.createView() }]
+		});
 
-	console.log();
-	console.log('WGPU Density Scores');
-	console.log(density_scores);
+		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
+		const pass = encoder.beginRenderPass({
+			label: 'oklab to srgb render pass',
+			colorAttachments: [
+				{
+					view: output_srgb_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
 
-	return density_scores;
+		pass.setPipeline(oklab_to_srgb_pipeline);
+		pass.setBindGroup(0, bind_group);
+		pass.draw(3);
+		pass.end();
+
+		const bytesPerRow = Math.ceil((imageBitMap.width * 4) / 256) * 256;
+		const readback_buffer = device!.createBuffer({
+			label: 'srgb readback buffer',
+			size: bytesPerRow * imageBitMap.height,
+			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+		});
+
+		encoder.copyTextureToBuffer(
+			{ texture: output_srgb_texture },
+			{ buffer: readback_buffer, bytesPerRow },
+			{ width: imageBitMap.width, height: imageBitMap.height }
+		);
+
+		device!.queue.submit([encoder.finish()]);
+
+		await readback_buffer.mapAsync(GPUMapMode.READ);
+		const raw = new Uint8Array(readback_buffer.getMappedRange().slice());
+		readback_buffer.unmap();
+
+		// remove row padding introduced by WebGPU alignment requirements
+		const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
+		for (let y = 0; y < imageBitMap.height; y++) {
+			for (let x = 0; x < imageBitMap.width; x++) {
+				const src = y * bytesPerRow + x * 4;
+				const dst = y * imageBitMap.width * 4 + x * 4;
+				pixels[dst] = raw[src];
+				pixels[dst + 1] = raw[src + 1];
+				pixels[dst + 2] = raw[src + 2];
+				pixels[dst + 3] = raw[src + 3];
+			}
+		}
+
+		return pixels;
+	}
+
+	// --- Density Scores Pass ---
+	async function density_scores_pass() {
+		/*
+		struct Uniforms {
+			base_bandwidth: f32,
+		}
+		*/
+		const float_uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
+		/*
+		struct UintUniforms {
+			  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+			  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
+			  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
+			  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
+		}
+		*/
+		const uint_uniforms_data = new Uint32Array([cluster_check_radius, 0, 0, tile_size]);
+
+		const float_uniforms_buffer = device!.createBuffer({
+			label: 'float uniforms buffer',
+			size: float_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		const uint_uniforms_buffer = device!.createBuffer({
+			label: 'uint uniforms buffer',
+			size: uint_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		// Setup a bindGroup to tell the shader which
+		// buffer to use for the computation
+		const bind_group = device!.createBindGroup({
+			label: 'update density scores bind group',
+			layout: update_density_scores_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: float_uniforms_buffer },
+				{ binding: 1, resource: uint_uniforms_buffer },
+				{ binding: 2, resource: input_oklab_texture.createView() },
+				{ binding: 3, resource: density_scores_buffer }
+			]
+		});
+		device!.queue.writeBuffer(float_uniforms_buffer, 0, float_uniforms_data);
+
+		for (let tile_x = 0; tile_x < imageBitMap.width; tile_x += tile_size) {
+			for (let tile_y = 0; tile_y < imageBitMap.height; tile_y += tile_size) {
+				// update the uint uniforms buffer for this pass
+				uint_uniforms_data[1] = tile_x;
+				uint_uniforms_data[2] = tile_y;
+				device!.queue.writeBuffer(uint_uniforms_buffer, 0, uint_uniforms_data);
+
+				// Encode commands to do the computation
+				const encoder = device!.createCommandEncoder({
+					label: 'update density scores encoder'
+				});
+				const pass = encoder.beginComputePass({
+					label: 'update density scores compute pass'
+				});
+				pass.setPipeline(update_density_scores_pipeline);
+				pass.setBindGroup(0, bind_group);
+				pass.dispatchWorkgroups(
+					Math.ceil(tile_size / 16), // divide by 16 to match shader workgroup size
+					Math.ceil(tile_size / 16) // divide by 16 to match shader workgroup size
+				);
+				pass.end();
+
+				device!.queue.submit([encoder.finish()]);
+
+				// cooperative pacing: prevents long uninterrupted GPU queue bursts
+				await device!.queue.onSubmittedWorkDone();
+				await new Promise((r) => setTimeout(r, 0));
+			}
+		}
+	}
+
+	// --- Mean Density Score Passes ---
+	async function get_mean_density_score(): Promise<number> {
+		// struct Uniforms {
+		//     partial_sum_size: u32,         /// each thread will be in charge of summing this many elements
+		//     num_remaining_elements: u32,   /// how many elements exist in `in_partial_sums`
+		// }
+		var uniforms_data = new Uint32Array([partial_sum_size, imageBitMap.width * imageBitMap.height]);
+
+		const uniforms_buffer = device!.createBuffer({
+			label: 'median density uniforms buffer',
+			size: uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		const in_partial_sums_buffer = device!.createBuffer({
+			label: 'mean density partial sums buffer',
+			size: density_scores_buffer.size, // same size as density scores buffer
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+		});
+
+		const out_partial_sums_buffer = device!.createBuffer({
+			label: 'mean density partial sums buffer',
+			size: density_scores_buffer.size, // same size as density scores buffer
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+		});
+
+		// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
+		const readback_buffer = device!.createBuffer({
+			label: 'median density readback buffer',
+			size: density_scores_buffer.size,
+			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+		});
+
+		// Setup a bindGroup to tell the shader which
+		// buffer to use for the computation
+		const bind_group = device!.createBindGroup({
+			label: 'median density bind group',
+			layout: mean_density_score_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: uniforms_buffer },
+				{ binding: 1, resource: in_partial_sums_buffer },
+				{ binding: 2, resource: out_partial_sums_buffer }
+			]
+		});
+		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+		// Encode commands to do the computation
+		const encoder = device!.createCommandEncoder({
+			label: 'median density encoder'
+		});
+
+		// initialize the in_partial_sums_buffer with the density scores
+		encoder.copyBufferToBuffer(density_scores_buffer, 0, in_partial_sums_buffer, 0);
+
+		// TODO: this should be broken up into multiple passes. its a lot less important than the other shaders, but at larger image sizes this can still cause hitching
+		let num_remaining_elements = imageBitMap.width * imageBitMap.height;
+		while (num_remaining_elements > 1) {
+			// Update the total_elements in the uniforms buffer
+			uniforms_data[1] = num_remaining_elements;
+			device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+			// update total elements (the pass hasn't happened yet, but i need this value for dispatching. so it's calculated early)
+			num_remaining_elements = Math.ceil(num_remaining_elements / partial_sum_size);
+
+			const pass = encoder.beginComputePass({
+				label: 'median density compute pass'
+			});
+			pass.setPipeline(mean_density_score_pipeline);
+			pass.setBindGroup(0, bind_group);
+			pass.dispatchWorkgroups(
+				Math.ceil(num_remaining_elements / 256) // divide by 256 to match shader workgroup size
+			);
+			pass.end();
+
+			if (num_remaining_elements > 1) {
+				// TODO: does this actually work? does this properly copy to the buffer so that the shader has the new data?
+				// set up the output of this pass to be the input to the next pass
+				encoder.copyBufferToBuffer(out_partial_sums_buffer, 0, in_partial_sums_buffer, 0);
+			}
+		}
+
+		encoder.copyBufferToBuffer(out_partial_sums_buffer, 0, readback_buffer, 0);
+
+		// Finish encoding and submit the commands
+		const command_buffer = encoder.finish();
+		device!.queue.submit([command_buffer]);
+		await readback_buffer.mapAsync(GPUMapMode.READ);
+		const result = new Float32Array(readback_buffer.getMappedRange().slice());
+
+		const median_density_score = result[0] / (imageBitMap.width * imageBitMap.height);
+
+		readback_buffer.unmap();
+
+		console.log();
+		console.log('WGPU Mean Density Score');
+		console.log(median_density_score);
+
+		return median_density_score;
+	}
+
+	// --- Mean Shift Cluster Pass ---
+	async function mean_shift_cluster_pass(median_density_score: number): Promise<void> {
+		// struct FloatUniforms {
+		// 	  base_bandwidth: f32,
+		// 	  median_density_score: f32,
+		// }
+		const float_uniforms_data = new Float32Array([base_bandwidth, median_density_score]);
+
+		// struct UintUniforms {
+		// 	  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+		// 	  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
+		// 	  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
+		// 	  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
+		// }
+		const uint_uniforms_data = new Uint32Array([cluster_check_radius, 0, 0, tile_size]);
+
+		const float_uniforms_buffer = device!.createBuffer({
+			label: 'mean shift cluster float uniforms buffer',
+			size: float_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		const uint_uniforms_buffer = device!.createBuffer({
+			label: 'mean shift cluster uint uniforms buffer',
+			size: uint_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+
+		// Setup a bindGroup to tell the shader which
+		// buffer to use for the computation
+		const bind_group = device!.createBindGroup({
+			label: 'mean shift cluster bind group',
+			layout: mean_shift_cluster_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: float_uniforms_buffer },
+				{ binding: 1, resource: uint_uniforms_buffer },
+				{ binding: 2, resource: input_oklab_texture.createView() },
+				{ binding: 3, resource: density_scores_buffer },
+				{ binding: 4, resource: output_oklab_texture.createView() }
+			]
+		});
+
+		// Copy our input data to input buffers
+		device!.queue.writeBuffer(float_uniforms_buffer, 0, float_uniforms_data);
+
+		for (let tile_x = 0; tile_x < imageBitMap.width; tile_x += tile_size) {
+			for (let tile_y = 0; tile_y < imageBitMap.height; tile_y += tile_size) {
+				// update the uint uniforms buffer for this pass
+				uint_uniforms_data[1] = tile_x;
+				uint_uniforms_data[2] = tile_y;
+				device!.queue.writeBuffer(uint_uniforms_buffer, 0, uint_uniforms_data);
+
+				// Encode commands to do the computation
+				const encoder = device!.createCommandEncoder({
+					label: 'mean shift cluster encoder'
+				});
+				const pass = encoder.beginComputePass({
+					label: 'mean shift cluster compute pass'
+				});
+				pass.setPipeline(mean_shift_cluster_pipeline);
+				pass.setBindGroup(0, bind_group);
+				pass.dispatchWorkgroups(
+					Math.ceil(tile_size / 16), // divide by 16 to match shader workgroup size
+					Math.ceil(tile_size / 16) // divide by 16 to match shader workgroup size
+				);
+				pass.end();
+
+				device!.queue.submit([encoder.finish()]);
+
+				// cooperative pacing: prevents long uninterrupted GPU queue bursts
+				await device!.queue.onSubmittedWorkDone();
+				await new Promise((r) => setTimeout(r, 0));
+			}
+		}
+	}
+
+	// --- Calling the Code ---
+	await srgb_to_oklab_pass();
+	await density_scores_pass();
+	const median_density_score = await get_mean_density_score();
+	await mean_shift_cluster_pass(median_density_score);
+	return [true, await oklab_to_srgb_pass()];
 }

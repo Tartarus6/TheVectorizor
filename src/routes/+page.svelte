@@ -9,11 +9,22 @@
 		get_median,
 		clamp
 	} from '$lib/utils';
-	import { gpu_mean_shift_cluster_step, gpu_update_density_scores } from '$lib/shaders';
+	import { run_shader } from '$lib/shaders';
 
-	let base_bandwidth = $state(0.1);
+	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another
+
+	let uploadedImageUrl = $state();
+	let image: ImageBitmap | undefined = $state();
+
+	let imageUploaded: HTMLImageElement | undefined = $state();
+
+	let base_bandwidth = $state(0.7);
+	let cluster_check_radius = $state(20);
+	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
+	let tile_size = $state(512);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
+	let canvas_scale = $state(2);
 
 	let num_points = $state(10);
 
@@ -24,6 +35,38 @@
 
 	let colors: Oklab[] = $state([]);
 	let density_scores: number[] = $state([]);
+
+	const onFileSelected = (e: any) => {
+		const file = e.target.files[0];
+		let reader = new FileReader();
+		reader.readAsDataURL(file);
+		reader.onload = async (e) => {
+			uploadedImageUrl = e.target!.result;
+
+			const res = await fetch(uploadedImageUrl as string);
+			image = await createImageBitmap(await res.blob());
+		};
+		console.log(uploadedImageUrl!);
+	};
+
+	function apply_canvas_display_scale(target: HTMLCanvasElement | undefined) {
+		if (!image) {
+			return;
+		}
+
+		if (!target) {
+			return;
+		}
+
+		target.style.width = `${image.width * canvas_scale}px`;
+		target.style.height = `${image.height * canvas_scale}px`;
+		target.style.imageRendering = 'pixelated';
+	}
+
+	$effect(() => {
+		apply_canvas_display_scale(canvas);
+		apply_canvas_display_scale(image_canvas);
+	});
 
 	async function randomize_colors() {
 		colors = [];
@@ -161,10 +204,63 @@
 
 <h1 class="text-center">The Vectorizor</h1>
 
-<div class="flex flex-col">
-	<div class="m-2 flex w-64 flex-col bg-slate-500 p-2">
+<div class="flex w-92 flex-col">
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
 		<span>Num Points: {num_points}</span>
-		<input type="range" bind:value={num_points} min="0" max="1000" />
+		<input type="range" bind:value={num_points} min={0} max={1000} />
+	</div>
+
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<span>Canvas Scale: {canvas_scale}</span>
+		<input type="range" bind:value={canvas_scale} min={1} max={5} />
+	</div>
+
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<span>Base Bandwidth: {base_bandwidth}</span>
+		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.001} />
+	</div>
+
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<div class="flex flex-row gap-2">
+			<span>Cluster Check Radius:</span>
+			<input
+				type="number"
+				bind:value={cluster_check_radius}
+				min={1}
+				max={image ? Math.min(tile_size, Math.max(image.width, image.height)) : 512}
+				step={1}
+				class="border-2 border-white"
+			/>
+		</div>
+
+		<input
+			type="range"
+			bind:value={cluster_check_radius}
+			min={1}
+			max={image ? Math.min(tile_size, Math.max(image.width, image.height)) : tile_size}
+			step={1}
+		/>
+	</div>
+
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<div class="flex flex-row gap-2">
+			<span>Tile Size:</span>
+			<input
+				type="number"
+				bind:value={tile_size}
+				min={1}
+				max={image ? Math.max(image.width, image.height) : 512}
+				step={1}
+				class="border-2 border-white"
+			/>
+		</div>
+		<input
+			type="range"
+			bind:value={tile_size}
+			min={1}
+			max={image ? Math.max(image.width, image.height) : 512}
+			step={1}
+		/>
 	</div>
 
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
@@ -175,38 +271,61 @@
 		<span>mean shift cluster step TS</span>
 	</button>
 
-	<button
-		onmousedown={async () => {
-			const [changed, newColors] = await gpu_mean_shift_cluster_step(
-				colors,
-				density_scores,
-				base_bandwidth
-			);
-			if (changed) {
-				colors = newColors;
-				count += 1;
-				await gpu_update_density_scores(colors, base_bandwidth);
-			}
-		}}
-		class="m-2 w-fit cursor-pointer bg-yellow-500 p-2"
-	>
-		mean shift cluster step WGPU
-	</button>
-
 	<button onmousedown={update_density_scores} class="m-2 w-fit cursor-pointer bg-red-500 p-2">
 		<span>update density scores TS</span>
 	</button>
 
 	<button
-		onmousedown={() => {
-			gpu_update_density_scores(colors, base_bandwidth);
+		onmousedown={async () => {
+			const res = await fetch(uploadedImageUrl as string);
+			image = await createImageBitmap(await res.blob());
+
+			image_canvas!.width = image.width;
+			image_canvas!.height = image.height;
+			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
+
+			const startTime = performance.now();
+			const [success, pixels] = await run_shader(
+				image,
+				base_bandwidth,
+				cluster_check_radius,
+				tile_size
+			);
+			const endTime = performance.now();
+			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
+			if (success) {
+				canvas!.width = image.width;
+				canvas!.height = image.height;
+				const safePixels = new Uint8ClampedArray(new ArrayBuffer(pixels.length));
+				safePixels.set(pixels);
+				const ctx = canvas!.getContext('2d')!;
+				ctx.putImageData(new ImageData(safePixels, image.width, image.height), 0, 0);
+			}
 		}}
-		class="m-2 w-fit cursor-pointer bg-red-500 p-2"
+		class="m-2 w-fit cursor-pointer bg-purple-500 p-2"
 	>
-		<span>update density scores WGPU</span>
+		<span>shader pass</span>
 	</button>
 
 	<span>Number of passes: {count}</span>
+</div>
+<div class="flex w-fit flex-col bg-slate-600 p-2">
+	<h3>appload your image here</h3>
+	<input type="file" accept="image/*" class="bg-blue-500" onchange={onFileSelected} />
+	{#if uploadedImageUrl}
+		<img
+			src={uploadedImageUrl as string}
+			alt="uploaded"
+			bind:this={imageUploaded}
+			class="max-h-100 max-w-100"
+		/>
+	{/if}
+</div>
+
+<div class="flex flex-col">
+	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
+	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>
 
 <button
@@ -228,8 +347,3 @@
 		</div>
 	{/each}
 </button>
-
-<div>
-	<canvas bind:this={canvas} class="col-start-1 row-start-1 h-100 w-100"></canvas>
-	<canvas bind:this={image_canvas} class="col-start-1 row-start-1 h-100 w-100"></canvas>
-</div>
