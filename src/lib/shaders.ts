@@ -2,6 +2,8 @@ import { get_median, type Oklab } from './utils';
 import mean_shift_cluster_step_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
 import update_density_scores_shader from '$lib/shaders/update_density_scores.wgsl?raw';
 import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass.wgsl?raw';
+import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
+import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -20,7 +22,6 @@ const partial_sum_size: number = 8;
 /// returns whether the colors changed (used to know whether to increase count)
 export async function run_shader(
 	imageBitMap: ImageBitmap,
-	colors: Oklab[],
 	base_bandwidth: number,
 	cluster_check_radius: number,
 	tile_size: number
@@ -72,26 +73,78 @@ export async function run_shader(
 		}
 	});
 
+	const srgb_to_oklab_module = device.createShaderModule({
+		label: 'srgb to oklab module',
+		code: srgb_to_oklab_shader
+	});
+	const srgb_to_oklab_pipeline = device.createRenderPipeline({
+		label: 'srgb to oklab render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: srgb_to_oklab_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: srgb_to_oklab_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
+
+	const oklab_to_srgb_module = device.createShaderModule({
+		label: 'oklab to srgb module',
+		code: oklab_to_srgb_shader
+	});
+	const oklab_to_srgb_pipeline = device.createRenderPipeline({
+		label: 'oklab to srgb render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: oklab_to_srgb_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: oklab_to_srgb_module,
+			targets: [
+				{
+					format: 'rgba8unorm'
+				}
+			]
+		}
+	});
+
 	// --- Shared Textures ---
-	const input_color_texture = device.createTexture({
-		label: 'input color texture',
+	const input_srgb_texture = device.createTexture({
+		label: 'input srgb texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
 	});
 
-	const output_colors_texture = device.createTexture({
-		label: 'output colors texture',
+	const input_oklab_texture = device.createTexture({
+		label: 'input oklab texture',
 		size: [imageBitMap.width, imageBitMap.height],
-		format: 'rgba8unorm',
-		usage: GPUTextureUsage.COPY_SRC | GPUTextureUsage.STORAGE_BINDING
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
-	device.queue.copyExternalImageToTexture(
-		{ source: imageBitMap },
-		{ texture: input_color_texture },
-		{ width: imageBitMap.width, height: imageBitMap.height }
-	);
+	const output_oklab_texture = device.createTexture({
+		label: 'output oklab texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+	});
+
+	const output_srgb_texture = device.createTexture({
+		label: 'output srgb texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba8unorm',
+		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+	});
 
 	// --- Shared Buffers ---
 	const density_scores_buffer = device.createBuffer({
@@ -100,19 +153,119 @@ export async function run_shader(
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 
+	// --- sRGB to OkLab Pass ---
+	async function srgb_to_oklab_pass() {
+		device!.queue.copyExternalImageToTexture(
+			{ source: imageBitMap },
+			{ texture: input_srgb_texture },
+			{ width: imageBitMap.width, height: imageBitMap.height }
+		);
+
+		const bind_group = device!.createBindGroup({
+			label: 'srgb to oklab bind group',
+			layout: srgb_to_oklab_pipeline.getBindGroupLayout(0),
+			entries: [{ binding: 0, resource: input_srgb_texture.createView() }]
+		});
+
+		const encoder = device!.createCommandEncoder({ label: 'srgb to oklab encoder' });
+		const pass = encoder.beginRenderPass({
+			label: 'srgb to oklab render pass',
+			colorAttachments: [
+				{
+					view: input_oklab_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
+
+		pass.setPipeline(srgb_to_oklab_pipeline);
+		pass.setBindGroup(0, bind_group);
+		pass.draw(3);
+		pass.end();
+
+		device!.queue.submit([encoder.finish()]);
+		await device!.queue.onSubmittedWorkDone();
+	}
+
+	// --- OkLab to sRGB Pass ---
+	async function oklab_to_srgb_pass(): Promise<Uint8ClampedArray> {
+		const bind_group = device!.createBindGroup({
+			label: 'oklab to srgb bind group',
+			layout: oklab_to_srgb_pipeline.getBindGroupLayout(0),
+			entries: [{ binding: 0, resource: output_oklab_texture.createView() }]
+		});
+
+		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
+		const pass = encoder.beginRenderPass({
+			label: 'oklab to srgb render pass',
+			colorAttachments: [
+				{
+					view: output_srgb_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
+
+		pass.setPipeline(oklab_to_srgb_pipeline);
+		pass.setBindGroup(0, bind_group);
+		pass.draw(3);
+		pass.end();
+
+		const bytesPerRow = Math.ceil((imageBitMap.width * 4) / 256) * 256;
+		const readback_buffer = device!.createBuffer({
+			label: 'srgb readback buffer',
+			size: bytesPerRow * imageBitMap.height,
+			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+		});
+
+		encoder.copyTextureToBuffer(
+			{ texture: output_srgb_texture },
+			{ buffer: readback_buffer, bytesPerRow },
+			{ width: imageBitMap.width, height: imageBitMap.height }
+		);
+
+		device!.queue.submit([encoder.finish()]);
+
+		await readback_buffer.mapAsync(GPUMapMode.READ);
+		const raw = new Uint8Array(readback_buffer.getMappedRange().slice());
+		readback_buffer.unmap();
+
+		// remove row padding introduced by WebGPU alignment requirements
+		const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
+		for (let y = 0; y < imageBitMap.height; y++) {
+			for (let x = 0; x < imageBitMap.width; x++) {
+				const src = y * bytesPerRow + x * 4;
+				const dst = y * imageBitMap.width * 4 + x * 4;
+				pixels[dst] = raw[src];
+				pixels[dst + 1] = raw[src + 1];
+				pixels[dst + 2] = raw[src + 2];
+				pixels[dst + 3] = raw[src + 3];
+			}
+		}
+
+		return pixels;
+	}
+
 	// --- Density Scores Pass ---
 	async function density_scores_pass() {
-		// struct Uniforms {
-		// 	  base_bandwidth: f32,
-		// }
+		/*
+		struct Uniforms {
+			base_bandwidth: f32,
+		}
+		*/
 		const float_uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
-
-		// struct UintUniforms {
-		// 	  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
-		// 	  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-		// 	  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-		// 	  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-		// }
+		/*
+		struct UintUniforms {
+			  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+			  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
+			  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
+			  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
+		}
+		*/
 		const uint_uniforms_data = new Uint32Array([cluster_check_radius, 0, 0, tile_size]);
 
 		const float_uniforms_buffer = device!.createBuffer({
@@ -135,7 +288,7 @@ export async function run_shader(
 			entries: [
 				{ binding: 0, resource: float_uniforms_buffer },
 				{ binding: 1, resource: uint_uniforms_buffer },
-				{ binding: 2, resource: input_color_texture.createView() },
+				{ binding: 2, resource: input_oklab_texture.createView() },
 				{ binding: 3, resource: density_scores_buffer }
 			]
 		});
@@ -273,7 +426,7 @@ export async function run_shader(
 	}
 
 	// --- Mean Shift Cluster Pass ---
-	async function mean_shift_cluster_pass(median_density_score: number): Promise<Uint8ClampedArray> {
+	async function mean_shift_cluster_pass(median_density_score: number): Promise<void> {
 		// struct FloatUniforms {
 		// 	  base_bandwidth: f32,
 		// 	  median_density_score: f32,
@@ -308,9 +461,9 @@ export async function run_shader(
 			entries: [
 				{ binding: 0, resource: float_uniforms_buffer },
 				{ binding: 1, resource: uint_uniforms_buffer },
-				{ binding: 2, resource: input_color_texture.createView() },
+				{ binding: 2, resource: input_oklab_texture.createView() },
 				{ binding: 3, resource: density_scores_buffer },
-				{ binding: 4, resource: output_colors_texture.createView() }
+				{ binding: 4, resource: output_oklab_texture.createView() }
 			]
 		});
 
@@ -346,44 +499,12 @@ export async function run_shader(
 				await new Promise((r) => setTimeout(r, 0));
 			}
 		}
-
-		// add padding because reading from a texture to a buffer needs multiples of 256 ??? god I hate shaders
-		const bytesPerRow = Math.ceil((imageBitMap.width * 4) / 256) * 256;
-
-		const readback_buffer = device!.createBuffer({
-			label: 'color readback buffer',
-			size: bytesPerRow * imageBitMap.height,
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-		});
-		const copy_encoder = device!.createCommandEncoder({ label: 'cluster step copy encoder' });
-		copy_encoder.copyTextureToBuffer(
-			{ texture: output_colors_texture },
-			{ buffer: readback_buffer, bytesPerRow },
-			{ width: imageBitMap.width, height: imageBitMap.height }
-		);
-
-		device!.queue.submit([copy_encoder.finish()]);
-
-		await readback_buffer.mapAsync(GPUMapMode.READ);
-		const raw = new Uint8Array(readback_buffer.getMappedRange().slice());
-		readback_buffer.unmap();
-
-		// remove the padding
-		const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
-		for (let y = 0; y < imageBitMap.height; y++) {
-			for (let x = 0; x < imageBitMap.width; x++) {
-				const src = y * bytesPerRow + x * 4;
-				const dst = y * imageBitMap.width * 4 + x * 4;
-				pixels[dst] = raw[src];
-				pixels[dst + 1] = raw[src + 1];
-				pixels[dst + 2] = raw[src + 2];
-				pixels[dst + 3] = raw[src + 3];
-			}
-		}
-		return pixels;
 	}
 
+	// --- Calling the Code ---
+	await srgb_to_oklab_pass();
 	await density_scores_pass();
 	const median_density_score = await get_mean_density_score();
-	return [true, await mean_shift_cluster_pass(median_density_score)];
+	await mean_shift_cluster_pass(median_density_score);
+	return [true, await oklab_to_srgb_pass()];
 }

@@ -249,7 +249,7 @@
 				type="number"
 				bind:value={tile_size}
 				min={1}
-				max={image ? Math.max(image.width, image.height) : 250}
+				max={image ? Math.max(image.width, image.height) : 512}
 				step={1}
 				class="border-2 border-white"
 			/>
@@ -258,7 +258,7 @@
 			type="range"
 			bind:value={tile_size}
 			min={1}
-			max={image ? Math.max(image.width, image.height) : 250}
+			max={image ? Math.max(image.width, image.height) : 512}
 			step={1}
 		/>
 	</div>
@@ -287,7 +287,6 @@
 			const startTime = performance.now();
 			const [success, pixels] = await run_shader(
 				image,
-				colors,
 				base_bandwidth,
 				cluster_check_radius,
 				tile_size

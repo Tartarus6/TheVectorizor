@@ -15,7 +15,7 @@ struct UintUniforms {
 @group(0) @binding(1) var<uniform> uint_uniforms: UintUniforms;
 @group(0) @binding(2) var input_colors: texture_2d<f32>;
 @group(0) @binding(3) var<storage,read_write> input_density_scores: array<f32>;
-@group(0) @binding(4) var output_colors: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(4) var output_colors: texture_storage_2d<rgba16float, write>;
 
 
 // TODO: handle transparent pixels
