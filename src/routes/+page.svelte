@@ -18,13 +18,15 @@
 
 	let imageUploaded: HTMLImageElement | undefined = $state();
 
-	let base_bandwidth = $state(0.7);
-	let cluster_check_radius = $state(20);
+	let base_bandwidth = $state(0.05);
+	let cluster_check_radius = $state(16);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
-	let tile_size = $state(512);
+	let tile_size = $state(256);
+	let alpha = $state(0.35);
+	let passes = $state(10);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
-	let canvas_scale = $state(2);
+	let canvas_scale = $state(4);
 
 	let num_points = $state(10);
 
@@ -216,8 +218,17 @@
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
-		<span>Base Bandwidth: {base_bandwidth}</span>
-		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.001} />
+		<div class="flex flex-row gap-2">
+			<span>Base Bandwidth:</span>
+			<input
+				type="number"
+				bind:value={base_bandwidth}
+				min={0}
+				max={1}
+				class="min-w-20 border-2 border-white"
+			/>
+		</div>
+		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.0001} />
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
@@ -263,6 +274,26 @@
 		/>
 	</div>
 
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<div class="flex flex-row gap-2">
+			<span>Alpha (CURRENTLY UNUSED):</span>
+			<input
+				type="number"
+				bind:value={alpha}
+				min={0}
+				max={2}
+				class="min-w-20 border-2 border-white"
+			/>
+		</div>
+
+		<input type="range" bind:value={alpha} min={0} max={2} step={0.0001} />
+	</div>
+
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<span>Passes: {passes}</span>
+		<input type="range" bind:value={passes} min={1} max={20} />
+	</div>
+
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
 		<span>randomize colors</span>
 	</button>
@@ -289,7 +320,9 @@
 				image,
 				base_bandwidth,
 				cluster_check_radius,
-				tile_size
+				tile_size,
+				passes,
+				alpha
 			);
 			const endTime = performance.now();
 			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
