@@ -239,10 +239,10 @@ export async function run_shader(
 		const float_uniforms_data = new Float32Array([base_bandwidth, cluster_check_radius]);
 		/*
 		struct UintUniforms {
-			  cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
-			  tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-			  tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-			  tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
+			cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
+			tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
+			tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
+			tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
 		}
 		*/
 		const uint_uniforms_data = new Uint32Array([cluster_check_radius, 0, 0, tile_size]);
@@ -346,10 +346,12 @@ export async function run_shader(
 			}
 		});
 
-		// struct Uniforms {
-		//     partial_sum_size: u32,         /// each thread will be in charge of summing this many elements
-		//     num_remaining_elements: u32,   /// how many elements exist in `in_partial_sums`
-		// }
+		/*
+		struct Uniforms {
+		    partial_sum_size: u32,         /// each thread will be in charge of summing this many elements
+		    num_remaining_elements: u32,   /// how many elements exist in `in_partial_sums`
+		}
+		*/
 		var uniforms_data = new Uint32Array([partial_sum_size, imageBitMap.width * imageBitMap.height]);
 
 		const uniforms_buffer = device!.createBuffer({

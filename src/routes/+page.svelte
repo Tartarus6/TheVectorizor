@@ -18,15 +18,15 @@
 
 	let imageUploaded: HTMLImageElement | undefined = $state();
 
-	let base_bandwidth = $state(0.01);
+	let base_bandwidth = $state(0.025);
 	let cluster_check_radius = $state(64);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
-	let tile_size = $state(128);
+	let tile_size = $state(256);
 	let alpha = $state(0.35);
 	let passes = $state(2);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
-	let canvas_scale = $state(2);
+	let canvas_scale = $state(4);
 
 	let num_points = $state(10);
 
