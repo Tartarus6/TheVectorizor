@@ -18,12 +18,12 @@
 
 	let imageUploaded: HTMLImageElement | undefined = $state();
 
-	let base_bandwidth = $state(0.025);
-	let cluster_check_radius = $state(64);
+	let base_bandwidth = $state(0.05);
+	let cluster_check_radius = $state(16);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
 	let tile_size = $state(256);
 	let alpha = $state(0.35);
-	let passes = $state(2);
+	let passes = $state(10);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let canvas_scale = $state(4);
@@ -276,7 +276,7 @@
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
 		<div class="flex flex-row gap-2">
-			<span>Alpha:</span>
+			<span>Alpha (CURRENTLY UNUSED):</span>
 			<input
 				type="number"
 				bind:value={alpha}
