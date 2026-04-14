@@ -4,6 +4,8 @@ import update_density_scores_shader from '$lib/shaders/update_density_scores.wgs
 import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass.wgsl?raw';
 import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
 import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
+import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
+import difference_of_gaussian_shader from '$lib/shaders/difference_of_gaussian.wgsl?raw';
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -44,6 +46,42 @@ export async function run_shader(
 			module: device.createShaderModule({
 				label: 'update density scores module',
 				code: update_density_scores_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
+	const gaussian_blur_h = device.createComputePipeline({
+		label: 'gaussian blur horizontal pass ',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'gaussian blur horizontal pass ',
+				code: gaussian_blur_shader
+			}),
+			entryPoint: 'blur_horizontal'
+		}
+	});
+
+	const gaussian_blur_v = device.createComputePipeline({
+		label: 'gaussian blur vertical pass ',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'gaussian blur vertical pass ',
+				code: gaussian_blur_shader
+			}),
+			entryPoint: 'blur_vertical'
+		}
+	});
+
+	const diff_gaussian = device.createComputePipeline({
+		label: 'difference of gaussian pass',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'difference of gaussian pass',
+				code: gaussian_blur_shader
 			}),
 			entryPoint: 'cs_main'
 		}
@@ -143,7 +181,22 @@ export async function run_shader(
 		label: 'output srgb texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
-		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+		usage:
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING
+	});
+
+	const input_output_gaussian_pass = device.createTexture({
+		label: 'io guassian pass texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba8unorm',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
+	});
+
+	const output_dif_gaussian = device.createTexture({
+		label: 'io guassian pass texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba8unorm',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC | GPUTextureUsage.COPY_DST
 	});
 
 	// --- Shared Buffers ---
@@ -499,6 +552,13 @@ export async function run_shader(
 				await new Promise((r) => setTimeout(r, 0));
 			}
 		}
+	}
+
+  async function difference_of_gaussian_pass(threshold: number) {
+    
+    
+    var uniform_data = new Uint32Array([threshold]);
+		
 	}
 
 	// --- Calling the Code ---
