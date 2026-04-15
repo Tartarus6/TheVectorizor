@@ -9,15 +9,23 @@ import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 /// each thread in the mean density score passes will be in charge of summing this many elements
 const partial_sum_size: number = 8;
 
-// TODO: add image locality weighting to cluster. make closer pixels count more toward the final color
-// TODO: switch run_shader to actually be multiple passes. it should loop passes until the image isn't changing anymore (or is changing below some threshold)
-// TODO: add pass to convert image colors into Oklab, and another to convert it back into rgb
-// TODO: keep density scores as a buffer, don't turn back into number[]. this means that we'll need to somehow switch how we calculate the median density score
+// PERFORMANCE TODOS
+// TODO: implement ping-pong textures, stop doing unnecessary texture copies
+// TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
+// TODO: keep density scores as a buffer, don't turn back into number. this means that we'll need to somehow switch how we calculate the median density score
+// TODO: figure out a good value for partial_sum_size
+// TODO: (maybe) switch to holding density scores in a texture rather than a general array buffer
+// TODO: (maybe) turn update_density_scores into a fragment shader
+// TODO: (maybe) turn mean_shift_cluster_step into a fragment shader
+
+// GENERAL TODOS
+// TODO: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
+// TODO: deal with unused alpha. (need to figure what makes for a good function, and if alpha should be removed or not)
+// TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
+// TODO: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
-// TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
-// TODO: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 /// returns whether the colors changed (used to know whether to increase count)
 export async function run_shader(
 	imageBitMap: ImageBitmap,
@@ -219,6 +227,9 @@ export async function run_shader(
 
 	// --- Density Scores Pass ---
 	async function density_scores_pass() {
+		// for performance monitoring
+		const startTime = performance.now();
+
 		const update_density_scores_pipeline = device!.createComputePipeline({
 			label: 'update density scores compute pipeline',
 			layout: 'auto',
@@ -302,38 +313,16 @@ export async function run_shader(
 				await new Promise((r) => setTimeout(r, 0));
 			}
 		}
-	}
 
-	async function log_density_scores(pass_index: number): Promise<void> {
-		const readback_buffer = device!.createBuffer({
-			label: 'density scores readback buffer',
-			size: density_scores_buffer.size,
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-		});
-
-		const encoder = device!.createCommandEncoder({
-			label: 'density scores readback encoder'
-		});
-		encoder.copyBufferToBuffer(
-			density_scores_buffer,
-			0,
-			readback_buffer,
-			0,
-			density_scores_buffer.size
-		);
-		device!.queue.submit([encoder.finish()]);
-
-		await readback_buffer.mapAsync(GPUMapMode.READ);
-		const density_scores = new Float32Array(readback_buffer.getMappedRange().slice());
-		readback_buffer.unmap();
-
-		console.log();
-		console.log(`WGPU Density Scores (pass ${pass_index})`);
-		console.log(Array.from(density_scores));
+		const endTime = performance.now();
+		console.log(`density_scores_pass execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
 	// --- Mean Density Score Passes ---
 	async function get_mean_density_score(): Promise<number> {
+		// for performance monitoring
+		const startTime = performance.now();
+
 		const mean_density_score_pipeline = device!.createComputePipeline({
 			label: 'mean density score compute pipeline',
 			layout: 'auto',
@@ -465,15 +454,17 @@ export async function run_shader(
 
 		readback_buffer.unmap();
 
-		console.log();
-		console.log('WGPU Mean Density Score');
-		console.log(mean_density_score);
+		const endTime = performance.now();
+		console.log(`get_mean_density_score execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 		return mean_density_score;
 	}
 
 	// --- Mean Shift Cluster Pass ---
 	async function mean_shift_cluster_pass(mean_density_score: number): Promise<void> {
+		// for performance monitoring
+		const startTime = performance.now();
+
 		const mean_shift_cluster_pipeline = device!.createComputePipeline({
 			label: 'mean shift cluster compute pipeline',
 			layout: 'auto',
@@ -573,13 +564,17 @@ export async function run_shader(
 			{ width: imageBitMap.width, height: imageBitMap.height }
 		);
 		device!.queue.submit([texture_copy_encoder.finish()]);
+
+		const endTime = performance.now();
+		console.log(`mean_shift_cluster_pass execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
 	// --- Calling the Code ---
 	await srgb_to_oklab_pass();
 	for (var i = 0; i < passes; i++) {
+		console.log();
+		console.log('Pass:', i);
 		await density_scores_pass();
-		// await log_density_scores(i + 1);
 		const mean_density_score = await get_mean_density_score();
 		await mean_shift_cluster_pass(mean_density_score);
 	}
