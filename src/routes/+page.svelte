@@ -21,9 +21,9 @@
 	let base_bandwidth = $state(0.05);
 	let cluster_check_radius = $state(16);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
-	let tile_size = $state(256);
+	let tile_size = $state(512);
 	let alpha = $state(0.35);
-	let passes = $state(10);
+	let num_passes = $state(10);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let canvas_scale = $state(4);
@@ -290,8 +290,8 @@
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
-		<span>Passes: {passes}</span>
-		<input type="range" bind:value={passes} min={1} max={20} />
+		<span>Passes: {num_passes}</span>
+		<input type="range" bind:value={num_passes} min={1} max={20} />
 	</div>
 
 	<button onmousedown={randomize_colors} class="m-2 w-fit cursor-pointer bg-green-500 p-2">
@@ -321,7 +321,7 @@
 				base_bandwidth,
 				cluster_check_radius,
 				tile_size,
-				passes,
+				num_passes,
 				alpha
 			);
 			const endTime = performance.now();

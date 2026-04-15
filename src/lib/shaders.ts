@@ -10,7 +10,7 @@ import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 const partial_sum_size: number = 8;
 
 // PERFORMANCE TODOS
-// TODO: implement ping-pong textures, stop doing unnecessary texture copies
+// DONE: implement ping-pong textures, stop doing unnecessary texture copies
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
 // TODO: keep density scores as a buffer, don't turn back into number. this means that we'll need to somehow switch how we calculate the median density score
 // TODO: figure out a good value for partial_sum_size
@@ -32,11 +32,10 @@ export async function run_shader(
 	base_bandwidth: number,
 	cluster_check_radius: number,
 	tile_size: number,
-	passes: number,
+	num_passes: number,
 	alpha: number
 ): Promise<[boolean, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
-	console.log(alpha);
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
 
@@ -54,20 +53,27 @@ export async function run_shader(
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
 	});
 
-	const input_oklab_texture = device.createTexture({
+	const oklab_texture_ping = device.createTexture({
 		label: 'input oklab texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
-			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST
 	});
 
-	const output_oklab_texture = device.createTexture({
+	const oklab_texture_pong = device.createTexture({
 		label: 'output oklab texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
-			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST
 	});
 
 	const output_srgb_texture = device.createTexture({
@@ -125,7 +131,7 @@ export async function run_shader(
 			label: 'srgb to oklab render pass',
 			colorAttachments: [
 				{
-					view: input_oklab_texture.createView(),
+					view: oklab_texture_ping.createView(),
 					clearValue: [0, 0, 0, 0],
 					loadOp: 'clear',
 					storeOp: 'store'
@@ -143,7 +149,7 @@ export async function run_shader(
 	}
 
 	// --- OkLab to sRGB Pass ---
-	async function oklab_to_srgb_pass(): Promise<Uint8ClampedArray> {
+	async function oklab_to_srgb_pass(num_passes: number): Promise<Uint8ClampedArray> {
 		const oklab_to_srgb_module = device!.createShaderModule({
 			label: 'oklab to srgb module',
 			code: oklab_to_srgb_shader
@@ -166,10 +172,17 @@ export async function run_shader(
 			}
 		});
 
-		const bind_group = device!.createBindGroup({
-			label: 'oklab to srgb bind group',
+		const bind_group_ping = device!.createBindGroup({
+			label: 'oklab to srgb ping bind group',
 			layout: oklab_to_srgb_pipeline.getBindGroupLayout(0),
-			entries: [{ binding: 0, resource: output_oklab_texture.createView() }]
+			entries: [{ binding: 0, resource: oklab_texture_ping.createView() }]
+		});
+
+		// flips the ping and pong textures
+		const bind_group_pong = device!.createBindGroup({
+			label: 'oklab to srgb pong bind group',
+			layout: oklab_to_srgb_pipeline.getBindGroupLayout(0),
+			entries: [{ binding: 0, resource: oklab_texture_pong.createView() }]
 		});
 
 		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
@@ -186,7 +199,11 @@ export async function run_shader(
 		});
 
 		pass.setPipeline(oklab_to_srgb_pipeline);
-		pass.setBindGroup(0, bind_group);
+		if (num_passes % 2 == 0) {
+			pass.setBindGroup(0, bind_group_ping);
+		} else {
+			pass.setBindGroup(0, bind_group_pong);
+		}
 		pass.draw(3);
 		pass.end();
 
@@ -238,9 +255,6 @@ export async function run_shader(
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 	async function density_scores_pass() {
-		// for performance monitoring
-		const startTime = performance.now();
-
 		const update_density_scores_pipeline = device!.createComputePipeline({
 			label: 'update density scores compute pipeline',
 			layout: 'auto',
@@ -289,7 +303,7 @@ export async function run_shader(
 			entries: [
 				{ binding: 0, resource: float_uniforms_buffer },
 				{ binding: 1, resource: uint_uniforms_buffer },
-				{ binding: 2, resource: input_oklab_texture.createView() },
+				{ binding: 2, resource: oklab_texture_ping.createView() },
 				{ binding: 3, resource: density_scores_buffer }
 			]
 		});
@@ -324,16 +338,10 @@ export async function run_shader(
 				await new Promise((r) => setTimeout(r, 0));
 			}
 		}
-
-		const endTime = performance.now();
-		console.log(`density_scores_pass execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
 	// --- Mean Density Score Passes ---
 	async function get_mean_density_score(): Promise<number> {
-		// for performance monitoring
-		const startTime = performance.now();
-
 		const mean_density_score_pipeline = device!.createComputePipeline({
 			label: 'mean density score compute pipeline',
 			layout: 'auto',
@@ -453,17 +461,14 @@ export async function run_shader(
 
 		readback_buffer.unmap();
 
-		const endTime = performance.now();
-		console.log(`get_mean_density_score execution time: ${(endTime - startTime).toFixed(2)}ms`);
-
 		return mean_density_score;
 	}
 
 	// --- Mean Shift Cluster Pass ---
-	async function mean_shift_cluster_pass(mean_density_score: number): Promise<void> {
-		// for performance monitoring
-		const startTime = performance.now();
-
+	async function mean_shift_cluster_pass(
+		mean_density_score: number,
+		pass_index: number
+	): Promise<void> {
 		const mean_shift_cluster_pipeline = device!.createComputePipeline({
 			label: 'mean shift cluster compute pipeline',
 			layout: 'auto',
@@ -507,15 +512,28 @@ export async function run_shader(
 
 		// Setup a bindGroup to tell the shader which
 		// buffer to use for the computation
-		const bind_group = device!.createBindGroup({
-			label: 'mean shift cluster bind group',
+		const bind_group_ping = device!.createBindGroup({
+			label: 'mean shift cluster ping bind group',
 			layout: mean_shift_cluster_pipeline.getBindGroupLayout(0),
 			entries: [
 				{ binding: 0, resource: float_uniforms_buffer },
 				{ binding: 1, resource: uint_uniforms_buffer },
-				{ binding: 2, resource: input_oklab_texture.createView() },
+				{ binding: 2, resource: oklab_texture_ping.createView() },
 				{ binding: 3, resource: density_scores_buffer },
-				{ binding: 4, resource: output_oklab_texture.createView() }
+				{ binding: 4, resource: oklab_texture_pong.createView() }
+			]
+		});
+
+		// flip the ping and pong textures
+		const bind_group_pong = device!.createBindGroup({
+			label: 'mean shift cluster pong bind group',
+			layout: mean_shift_cluster_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: float_uniforms_buffer },
+				{ binding: 1, resource: uint_uniforms_buffer },
+				{ binding: 2, resource: oklab_texture_pong.createView() },
+				{ binding: 3, resource: density_scores_buffer },
+				{ binding: 4, resource: oklab_texture_ping.createView() }
 			]
 		});
 
@@ -537,7 +555,11 @@ export async function run_shader(
 					label: 'mean shift cluster compute pass'
 				});
 				pass.setPipeline(mean_shift_cluster_pipeline);
-				pass.setBindGroup(0, bind_group);
+				if (pass_index % 2 == 0) {
+					pass.setBindGroup(0, bind_group_ping);
+				} else {
+					pass.setBindGroup(0, bind_group_pong);
+				}
 				pass.dispatchWorkgroups(
 					Math.ceil(tile_size / 16), // divide by 16 to match shader workgroup size
 					Math.ceil(tile_size / 16) // divide by 16 to match shader workgroup size
@@ -558,24 +580,26 @@ export async function run_shader(
 			label: 'mean shift cluster encoder'
 		});
 		texture_copy_encoder.copyTextureToTexture(
-			{ texture: output_oklab_texture },
-			{ texture: input_oklab_texture },
+			{ texture: oklab_texture_pong },
+			{ texture: oklab_texture_ping },
 			{ width: imageBitMap.width, height: imageBitMap.height }
 		);
 		device!.queue.submit([texture_copy_encoder.finish()]);
-
-		const endTime = performance.now();
-		console.log(`mean_shift_cluster_pass execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
 	// --- Calling the Code ---
 	await srgb_to_oklab_pass();
-	for (var i = 0; i < passes; i++) {
+	for (var pass_index = 0; pass_index < num_passes; pass_index++) {
+		const startTime = performance.now();
+
 		console.log();
-		console.log('Pass:', i);
+		console.log('Pass:', pass_index);
 		await density_scores_pass();
 		const mean_density_score = await get_mean_density_score();
-		await mean_shift_cluster_pass(mean_density_score);
+		await mean_shift_cluster_pass(mean_density_score, pass_index);
+
+		const endTime = performance.now();
+		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
-	return [true, await oklab_to_srgb_pass()];
+	return [true, await oklab_to_srgb_pass(num_passes)];
 }
