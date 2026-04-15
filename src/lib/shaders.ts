@@ -226,6 +226,17 @@ export async function run_shader(
 	}
 
 	// --- Density Scores Pass ---
+	const in_partial_sums_buffer = device!.createBuffer({
+		label: 'mean density partial sums buffer',
+		size: density_scores_buffer.size, // same size as density scores buffer
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+	});
+
+	const out_partial_sums_buffer = device!.createBuffer({
+		label: 'mean density partial sums buffer',
+		size: density_scores_buffer.size, // same size as density scores buffer
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
 	async function density_scores_pass() {
 		// for performance monitoring
 		const startTime = performance.now();
@@ -347,18 +358,6 @@ export async function run_shader(
 			label: 'mean density uniforms buffer',
 			size: uniforms_data.byteLength,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		});
-
-		const in_partial_sums_buffer = device!.createBuffer({
-			label: 'mean density partial sums buffer',
-			size: density_scores_buffer.size, // same size as density scores buffer
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-		});
-
-		const out_partial_sums_buffer = device!.createBuffer({
-			label: 'mean density partial sums buffer',
-			size: density_scores_buffer.size, // same size as density scores buffer
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 		});
 
 		// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used

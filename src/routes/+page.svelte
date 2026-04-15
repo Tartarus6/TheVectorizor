@@ -13,7 +13,7 @@
 
 	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another
 
-	let uploadedImageUrl = $state();
+	let uploadedImageUrl: string | ArrayBuffer | null = $state('google_test.jpg');
 	let image: ImageBitmap | undefined = $state();
 
 	let imageUploaded: HTMLImageElement | undefined = $state();
