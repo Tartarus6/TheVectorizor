@@ -12,7 +12,8 @@ struct UintUniforms {
 @group(0) @binding(0) var<uniform> float_uniforms: FloatUniforms;
 @group(0) @binding(1) var<uniform> uint_uniforms: UintUniforms;
 @group(0) @binding(2) var input_colors: texture_2d<f32>;
-@group(0) @binding(3) var<storage,read_write> output_density_scores: array<f32>;
+@group(0) @binding(3) var<storage, read_write> output_density_scores: array<f32>;
+@group(0) @binding(4) var output_density_scores_texture: texture_storage_2d<rgba16float, write>;
 
 
 // TODO: handle transparent pixels (need to somehow count how many non-transparent pixels there are, so that we divide by the right number to get the mean)
@@ -50,4 +51,5 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     }
 
     output_density_scores[index] = density_score;
+    textureStore(output_density_scores_texture, pos, vec4f(density_score, 0, 0, 1));
 }

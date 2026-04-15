@@ -11,6 +11,8 @@ const partial_sum_size: number = 8;
 
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
+// TODO: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
+// TODO: implement debug canvas view (showing the density scores texture)
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
 // TODO: (maybe) fix cluster_check_radius cost explosion by doing sparse neighbor checks. might be possible then to remove cluster_check_radius and replace with some variable that controls how many points are checked, just checking sparsely across the whole image
 // TODO: prevent needing to do texture loads in mean shift cluster step. calculate and store color_dist_squared and image_dist_squared in update_density_scores.wgsl
@@ -25,6 +27,8 @@ const partial_sum_size: number = 8;
 // TODO: deal with unused alpha. (need to figure what makes for a good function, and if alpha should be removed or not)
 // TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
 // TODO: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
+// TODO: update the canvas view of the output each pass to show incremental work
+// TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
@@ -34,8 +38,7 @@ export async function run_shader(
 	base_bandwidth: number,
 	cluster_check_radius: number,
 	tile_size: number,
-	num_passes: number,
-	alpha: number
+	num_passes: number
 ): Promise<[boolean, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
@@ -90,6 +93,13 @@ export async function run_shader(
 		label: 'density scores buffer',
 		size: imageBitMap.width * imageBitMap.height * 4,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+	const density_scores_texture = device.createTexture({
+		label: 'density scores texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
 	});
 
 	// --- sRGB to OkLab Pass ---
@@ -151,7 +161,7 @@ export async function run_shader(
 	}
 
 	// --- OkLab to sRGB Pass ---
-	async function oklab_to_srgb_pass(num_passes: number): Promise<Uint8ClampedArray> {
+	async function oklab_to_srgb_pass(num_passes: number) {
 		const oklab_to_srgb_module = device!.createShaderModule({
 			label: 'oklab to srgb module',
 			code: oklab_to_srgb_shader
@@ -209,16 +219,21 @@ export async function run_shader(
 		pass.draw(3);
 		pass.end();
 
-		const bytesPerRow = Math.ceil((imageBitMap.width * 4) / 256) * 256;
+		device!.queue.submit([encoder.finish()]);
+	}
+
+	async function get_pixels(): Promise<Uint8ClampedArray> {
+		const bytes_per_row = Math.ceil((imageBitMap.width * 4) / 256) * 256;
 		const readback_buffer = device!.createBuffer({
-			label: 'srgb readback buffer',
-			size: bytesPerRow * imageBitMap.height,
+			label: 'pixel readback buffer',
+			size: bytes_per_row * imageBitMap.height,
 			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
 		});
 
+		const encoder = device!.createCommandEncoder({ label: 'get pixels encoder' });
 		encoder.copyTextureToBuffer(
 			{ texture: output_srgb_texture },
-			{ buffer: readback_buffer, bytesPerRow },
+			{ buffer: readback_buffer, bytesPerRow: bytes_per_row },
 			{ width: imageBitMap.width, height: imageBitMap.height }
 		);
 
@@ -232,7 +247,7 @@ export async function run_shader(
 		const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
 		for (let y = 0; y < imageBitMap.height; y++) {
 			for (let x = 0; x < imageBitMap.width; x++) {
-				const src = y * bytesPerRow + x * 4;
+				const src = y * bytes_per_row + x * 4;
 				const dst = y * imageBitMap.width * 4 + x * 4;
 				pixels[dst] = raw[src];
 				pixels[dst + 1] = raw[src + 1];
@@ -306,7 +321,8 @@ export async function run_shader(
 				{ binding: 0, resource: float_uniforms_buffer },
 				{ binding: 1, resource: uint_uniforms_buffer },
 				{ binding: 2, resource: oklab_texture_ping.createView() },
-				{ binding: 3, resource: density_scores_buffer }
+				{ binding: 3, resource: density_scores_buffer },
+				{ binding: 4, resource: density_scores_texture.createView() }
 			]
 		});
 		device!.queue.writeBuffer(float_uniforms_buffer, 0, float_uniforms_data);
@@ -486,10 +502,9 @@ export async function run_shader(
 		struct FloatUniforms {
 			base_bandwidth: f32,
 			mean_density_score: f32,
-    		alpha: f32, /// controls how strongly the density matters
 		}
 		*/
-		const float_uniforms_data = new Float32Array([base_bandwidth, mean_density_score, alpha]);
+		const float_uniforms_data = new Float32Array([base_bandwidth, mean_density_score]);
 		/*
 		struct UintUniforms {
 			cluster_check_radius: u32, /// how many a square of double this size, in the texture, around the pixel is the are checked for creating the cluster
@@ -585,11 +600,14 @@ export async function run_shader(
 		console.log();
 		console.log('Pass:', pass_index);
 		await density_scores_pass();
+
 		const mean_density_score = await get_mean_density_score();
+		// TODO: dont give function pass_index, instead give them the buffers that they'll operate on. so this loop would then be in charge of what the input and output textures are, and they can be set to whatever
 		await mean_shift_cluster_pass(mean_density_score, pass_index);
 
 		const endTime = performance.now();
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
-	return [true, await oklab_to_srgb_pass(num_passes)];
+	await oklab_to_srgb_pass(num_passes);
+	return [true, await get_pixels()];
 }

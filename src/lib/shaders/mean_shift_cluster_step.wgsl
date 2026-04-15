@@ -1,7 +1,6 @@
 struct FloatUniforms {
     base_bandwidth: f32,
     mean_density_score: f32,
-    alpha: f32, /// controls how strongly the density matters
 }
 
 struct UintUniforms {

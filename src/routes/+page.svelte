@@ -1,14 +1,5 @@
 <script lang="ts">
-	import {
-		rgbToOklab,
-		oklabToSRGB,
-		type RGB,
-		type Oklab,
-		rgbToHex,
-		get_distance,
-		get_median,
-		clamp
-	} from '$lib/utils';
+	import { oklabToSRGB, type Oklab, rgbToHex, get_distance, get_median, clamp } from '$lib/utils';
 	import { run_shader } from '$lib/shaders';
 
 	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another
@@ -22,8 +13,7 @@
 	let cluster_check_radius = $state(16);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
 	let tile_size = $state(512);
-	let alpha = $state(0.35);
-	let num_passes = $state(10);
+	let num_passes = $state(5);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let canvas_scale = $state(4);
@@ -275,21 +265,6 @@
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
-		<div class="flex flex-row gap-2">
-			<span>Alpha (CURRENTLY UNUSED):</span>
-			<input
-				type="number"
-				bind:value={alpha}
-				min={0}
-				max={2}
-				class="min-w-20 border-2 border-white"
-			/>
-		</div>
-
-		<input type="range" bind:value={alpha} min={0} max={2} step={0.0001} />
-	</div>
-
-	<div class="m-2 flex flex-col bg-slate-500 p-2">
 		<span>Passes: {num_passes}</span>
 		<input type="range" bind:value={num_passes} min={1} max={20} />
 	</div>
@@ -321,8 +296,7 @@
 				base_bandwidth,
 				cluster_check_radius,
 				tile_size,
-				num_passes,
-				alpha
+				num_passes
 			);
 			const endTime = performance.now();
 			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
