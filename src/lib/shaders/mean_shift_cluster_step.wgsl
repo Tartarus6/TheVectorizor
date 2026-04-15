@@ -56,7 +56,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
             let color_dist_squared = dot(color_delta, color_delta);
             let image_dist_squared = dot(image_delta, image_delta);
 
-            let weight = exp(-(color_dist_squared * image_dist_squared) / (2 * bandwidth_squared));
+            let weight = exp2(-(color_dist_squared * image_dist_squared) / (2 * bandwidth_squared));
             cluster_sum += other * weight;
             weights_sum += weight;
         }

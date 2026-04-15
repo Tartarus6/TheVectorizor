@@ -12,7 +12,9 @@ const partial_sum_size: number = 8;
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
-// TODO: keep density scores as a buffer, don't turn back into number. this means that we'll need to somehow switch how we calculate the median density score
+// TODO: (maybe) fix cluster_check_radius cost explosion by doing sparse neighbor checks. might be possible then to remove cluster_check_radius and replace with some variable that controls how many points are checked, just checking sparsely across the whole image
+// TODO: prevent needing to do texture loads in mean shift cluster step. calculate and store color_dist_squared and image_dist_squared in update_density_scores.wgsl
+// TODO: keep density scores as a buffer, don't turn back into number.
 // TODO: figure out a good value for partial_sum_size
 // TODO: (maybe) switch to holding density scores in a texture rather than a general array buffer
 // TODO: (maybe) turn update_density_scores into a fragment shader
@@ -573,18 +575,6 @@ export async function run_shader(
 				await new Promise((r) => setTimeout(r, 0));
 			}
 		}
-
-		// TODO: switch to a ping-pong pattern to prevent unnecessary memory movement
-		// Copy out texture back to in texture for use on next pass
-		const texture_copy_encoder = device!.createCommandEncoder({
-			label: 'mean shift cluster encoder'
-		});
-		texture_copy_encoder.copyTextureToTexture(
-			{ texture: oklab_texture_pong },
-			{ texture: oklab_texture_ping },
-			{ width: imageBitMap.width, height: imageBitMap.height }
-		);
-		device!.queue.submit([texture_copy_encoder.finish()]);
 	}
 
 	// --- Calling the Code ---

@@ -45,7 +45,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
             let delta = color.xyz - other.xyz;
             let dist_squared = dot(delta, delta);
 
-            density_score += exp(-dist_squared / (2.0 * BANDWIDTH_SQUARED));
+            density_score += exp2(-dist_squared / (2.0 * BANDWIDTH_SQUARED));
         }
     }
 
