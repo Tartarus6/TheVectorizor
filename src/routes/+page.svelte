@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { oklabToSRGB, type Oklab, rgbToHex, get_distance, get_median, clamp } from '$lib/utils';
 	import { run_shader } from '$lib/shaders';
 
 	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another

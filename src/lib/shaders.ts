@@ -79,27 +79,44 @@ export async function run_shader(
 		}
 	});
 
-	const gaussian_blur_h = device.createComputePipeline({
-		label: 'gaussian blur horizontal pass ',
+	const gaussian_blur_module = device.createShaderModule({
+		label: 'gaussian blur module',
+		code: gaussian_blur_shader
+	});
+
+	const gaussian_blur_h = device.createRenderPipeline({
+		label: 'gaussian blur horizontal pass',
 		layout: 'auto',
-		compute: {
-			module: device.createShaderModule({
-				label: 'gaussian blur horizontal pass ',
-				code: gaussian_blur_shader
-			}),
-			entryPoint: 'blur_horizontal'
+		vertex: {
+			entryPoint: 'vs_main',
+			module: gaussian_blur_module
+		},
+		fragment: {
+			entryPoint: 'blur_horizontal',
+			module: gaussian_blur_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
 		}
 	});
 
-	const gaussian_blur_v = device.createComputePipeline({
-		label: 'gaussian blur vertical pass ',
+	const gaussian_blur_v = device.createRenderPipeline({
+		label: 'gaussian blur vertical pass',
 		layout: 'auto',
-		compute: {
-			module: device.createShaderModule({
-				label: 'gaussian blur vertical pass ',
-				code: gaussian_blur_shader
-			}),
-			entryPoint: 'blur_vertical'
+		vertex: {
+			entryPoint: 'vs_main',
+			module: gaussian_blur_module
+		},
+		fragment: {
+			entryPoint: 'blur_vertical',
+			module: gaussian_blur_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
 		}
 	});
 
@@ -226,7 +243,7 @@ export async function run_shader(
 		label: 'gaussian blur intermediate texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	const blurred_oklab_texture = device.createTexture({
@@ -241,14 +258,14 @@ export async function run_shader(
 		label: 'dog blur A texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	const dog_blur_b_texture = device.createTexture({
 		label: 'dog blur B texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	// --- Shared Buffers ---
@@ -756,8 +773,7 @@ export async function run_shader(
 			entries: [
 				{ binding: 0, resource: { buffer: uniforms_buffer } },
 				{ binding: 1, resource: input_texture.createView() },
-				{ binding: 2, resource: gaussian_blur_intermediate_texture.createView() },
-				{ binding: 3, resource: { buffer: kernel_buffer } }
+				{ binding: 2, resource: { buffer: kernel_buffer } }
 			]
 		});
 
@@ -767,28 +783,44 @@ export async function run_shader(
 			entries: [
 				{ binding: 0, resource: { buffer: uniforms_buffer } },
 				{ binding: 1, resource: gaussian_blur_intermediate_texture.createView() },
-				{ binding: 2, resource: output_texture.createView() },
-				{ binding: 3, resource: { buffer: kernel_buffer } }
+				{ binding: 2, resource: { buffer: kernel_buffer } }
 			]
 		});
 
-		const workgroups_x = Math.ceil(imageBitMap.width / 16);
-		const workgroups_y = Math.ceil(imageBitMap.height / 16);
-
 		const h_encoder = device!.createCommandEncoder({ label: 'gaussian blur horizontal encoder' });
-		const h_pass = h_encoder.beginComputePass({ label: 'gaussian blur horizontal compute pass' });
+		const h_pass = h_encoder.beginRenderPass({
+			label: 'gaussian blur horizontal render pass',
+			colorAttachments: [
+				{
+					view: gaussian_blur_intermediate_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
 		h_pass.setPipeline(gaussian_blur_h);
 		h_pass.setBindGroup(0, h_bind_group);
-		h_pass.dispatchWorkgroups(workgroups_x, workgroups_y);
+		h_pass.draw(3);
 		h_pass.end();
 		device!.queue.submit([h_encoder.finish()]);
 		await device!.queue.onSubmittedWorkDone();
 
 		const v_encoder = device!.createCommandEncoder({ label: 'gaussian blur vertical encoder' });
-		const v_pass = v_encoder.beginComputePass({ label: 'gaussian blur vertical compute pass' });
+		const v_pass = v_encoder.beginRenderPass({
+			label: 'gaussian blur vertical render pass',
+			colorAttachments: [
+				{
+					view: output_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
 		v_pass.setPipeline(gaussian_blur_v);
 		v_pass.setBindGroup(0, v_bind_group);
-		v_pass.dispatchWorkgroups(workgroups_x, workgroups_y);
+		v_pass.draw(3);
 		v_pass.end();
 		device!.queue.submit([v_encoder.finish()]);
 		await device!.queue.onSubmittedWorkDone();
