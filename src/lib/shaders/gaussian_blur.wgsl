@@ -1,3 +1,7 @@
+struct Uniforms {
+    radius: u32,
+}
+
 struct VsOut {
     @builtin(position) pos: vec4f,
     @location(0) uv: vec2f,
@@ -25,10 +29,6 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return out;
 }
 
-struct Uniforms {
-    radius: u32,
-}
-
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var input_tex: texture_2d<f32>;
@@ -54,12 +54,12 @@ fn blur_horizontal(in: VsOut) -> @location(0) vec4f {
 
     for (var i: i32 = -r; i <= r; i = i + 1) {
         let x = clamp(i32(texel.x) + i, 0, i32(dims.x) - 1);
-        let sample = textureLoad(input_tex, vec2<i32>(x, i32(texel.y)), 0).rgb;
+        let sample = textureLoad(input_tex, vec2i(x, i32(texel.y)), 0).rgb;
         let idx = u32(abs(i));
         sum = sum + sample * gaussian_weights[idx];
     }
 
-    return vec4<f32>(sum, transparency);
+    return vec4f(sum, transparency);
 }
 
 @fragment
@@ -77,15 +77,15 @@ fn blur_vertical(in: VsOut) -> @location(0) vec4f {
     // TODO: prevent the need for separate texture load for transparency
     let transparency = textureLoad(input_tex, texel, 0).a;
 
-    var sum = vec3<f32>(0.0);
+    var sum = vec3f(0.0);
     let r = i32(uniforms.radius);
 
     for (var i: i32 = -r; i <= r; i = i + 1) {
         let y = clamp(i32(texel.y) + i, 0, i32(dims.y) - 1);
-        let sample = textureLoad(input_tex, vec2<i32>(i32(texel.x), y), 0).rgb;
+        let sample = textureLoad(input_tex, vec2i(i32(texel.x), y), 0).rgb;
         let idx = u32(abs(i));
         sum = sum + sample * gaussian_weights[idx];
     }
 
-    return vec4<f32>(sum, transparency);
+    return vec4f(sum, transparency);
 }

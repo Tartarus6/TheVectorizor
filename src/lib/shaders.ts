@@ -120,15 +120,26 @@ export async function run_shader(
 		}
 	});
 
-	const diff_gaussian = device.createComputePipeline({
+	const difference_of_gaussian_module = device.createShaderModule({
+		label: 'difference of gaussian module',
+		code: difference_of_gaussian_shader
+	});
+
+	const diff_gaussian = device.createRenderPipeline({
 		label: 'difference of gaussian pass',
 		layout: 'auto',
-		compute: {
-			module: device.createShaderModule({
-				label: 'difference of gaussian pass',
-				code: difference_of_gaussian_shader
-			}),
-			entryPoint: 'cs_main'
+		vertex: {
+			entryPoint: 'vs_main',
+			module: difference_of_gaussian_module
+		},
+		fragment: {
+			entryPoint: 'cs_main',
+			module: difference_of_gaussian_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
 		}
 	});
 
@@ -250,7 +261,10 @@ export async function run_shader(
 		label: 'blurred oklab texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	// Difference-of-Gaussians intermediate textures
@@ -844,19 +858,25 @@ export async function run_shader(
 			entries: [
 				{ binding: 0, resource: { buffer: uniforms_buffer } },
 				{ binding: 1, resource: dog_blur_a_texture.createView() },
-				{ binding: 2, resource: dog_blur_b_texture.createView() },
-				{ binding: 3, resource: output_texture.createView() }
+				{ binding: 2, resource: dog_blur_b_texture.createView() }
 			]
 		});
 
-		const wg_x = Math.ceil(imageBitMap.width / 16);
-		const wg_y = Math.ceil(imageBitMap.height / 16);
-
 		const encoder = device!.createCommandEncoder({ label: 'difference of gaussian encoder' });
-		const pass = encoder.beginComputePass({ label: 'difference of gaussian compute pass' });
+		const pass = encoder.beginRenderPass({
+			label: 'difference of gaussian render pass',
+			colorAttachments: [
+				{
+					view: output_texture.createView(),
+					clearValue: [0, 0, 0, 1],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
 		pass.setPipeline(diff_gaussian);
 		pass.setBindGroup(0, bind_group);
-		pass.dispatchWorkgroups(wg_x, wg_y);
+		pass.draw(3);
 		pass.end();
 
 		device!.queue.submit([encoder.finish()]);
