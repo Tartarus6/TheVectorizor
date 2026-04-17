@@ -3,6 +3,8 @@ import update_density_scores_shader from '$lib/shaders/update_density_scores.wgs
 import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass.wgsl?raw';
 import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
 import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
+import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
+import difference_of_gaussian_shader from '$lib/shaders/difference_of_gaussians.wgsl?raw';
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -33,6 +35,22 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 /// returns whether the colors changed (used to know whether to increase count)
+
+function compute_gaussian_kernel(radius: number): Float32Array {
+	const sigma = radius / 3.0;
+	const weights = new Float32Array(radius + 1);
+
+	for (let i = 0; i <= radius; i++) {
+		weights[i] = Math.exp(-(i * i) / (2 * sigma * sigma));
+	}
+
+	let sum = weights[0];
+	for (let i = 1; i <= radius; i++) sum += 2 * weights[i];
+	for (let i = 0; i <= radius; i++) weights[i] /= sum;
+
+	return weights;
+}
+
 export async function run_shader(
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
@@ -48,6 +66,123 @@ export async function run_shader(
 		alert('need a browser that supports WebGPU');
 		return [false, new Uint8ClampedArray()];
 	}
+
+	// --- Pipelines ---
+	const update_density_scores_pipeline = device.createComputePipeline({
+		label: 'update density scores compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'update density scores module',
+				code: update_density_scores_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
+	const gaussian_blur_h = device.createComputePipeline({
+		label: 'gaussian blur horizontal pass ',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'gaussian blur horizontal pass ',
+				code: gaussian_blur_shader
+			}),
+			entryPoint: 'blur_horizontal'
+		}
+	});
+
+	const gaussian_blur_v = device.createComputePipeline({
+		label: 'gaussian blur vertical pass ',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'gaussian blur vertical pass ',
+				code: gaussian_blur_shader
+			}),
+			entryPoint: 'blur_vertical'
+		}
+	});
+
+	const diff_gaussian = device.createComputePipeline({
+		label: 'difference of gaussian pass',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'difference of gaussian pass',
+				code: difference_of_gaussian_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
+	const mean_density_score_pipeline = device.createComputePipeline({
+		label: 'mean density score compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean density score module',
+				code: mean_density_score_pass_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
+	const mean_shift_cluster_pipeline = device.createComputePipeline({
+		label: 'mean shift cluster compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean shift cluster module',
+				code: mean_shift_cluster_step_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
+	const srgb_to_oklab_module = device.createShaderModule({
+		label: 'srgb to oklab module',
+		code: srgb_to_oklab_shader
+	});
+	const srgb_to_oklab_pipeline = device.createRenderPipeline({
+		label: 'srgb to oklab render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: srgb_to_oklab_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: srgb_to_oklab_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
+
+	const oklab_to_srgb_module = device.createShaderModule({
+		label: 'oklab to srgb module',
+		code: oklab_to_srgb_shader
+	});
+	const oklab_to_srgb_pipeline = device.createRenderPipeline({
+		label: 'oklab to srgb render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: oklab_to_srgb_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: oklab_to_srgb_module,
+			targets: [
+				{
+					format: 'rgba8unorm'
+				}
+			]
+		}
+	});
 
 	// --- Shared Textures ---
 	const input_srgb_texture = device.createTexture({
@@ -84,7 +219,37 @@ export async function run_shader(
 		label: 'output srgb texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
-		usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+		usage:
+			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING
+	});
+
+	const gaussian_blur_intermediate_texture = device.createTexture({
+		label: 'gaussian blur intermediate texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+	});
+
+	const blurred_oklab_texture = device.createTexture({
+		label: 'blurred oklab texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+	});
+
+	// Difference-of-Gaussians intermediate textures
+	const dog_blur_a_texture = device.createTexture({
+		label: 'dog blur A texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
+	});
+
+	const dog_blur_b_texture = device.createTexture({
+		label: 'dog blur B texture',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
 	});
 
 	// --- Shared Buffers ---
@@ -565,7 +730,108 @@ export async function run_shader(
 		}
 	}
 
-	// --- Calling the Code ---
+	async function gaussian_blur_pass(
+		radius: number,
+		input_texture: GPUTexture,
+		output_texture: GPUTexture
+	): Promise<void> {
+		const uniforms_data = new Uint32Array([radius]);
+		const uniforms_buffer = device!.createBuffer({
+			label: 'gaussian blur uniforms buffer',
+			size: uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+		const kernel_weights = compute_gaussian_kernel(radius);
+		const kernel_buffer = device!.createBuffer({
+			label: 'gaussian blur kernel weights buffer',
+			size: kernel_weights.byteLength,
+			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+		});
+		device!.queue.writeBuffer(kernel_buffer, 0, kernel_weights);
+
+		const h_bind_group = device!.createBindGroup({
+			label: 'gaussian blur horizontal bind group',
+			layout: gaussian_blur_h.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: uniforms_buffer } },
+				{ binding: 1, resource: input_texture.createView() },
+				{ binding: 2, resource: gaussian_blur_intermediate_texture.createView() },
+				{ binding: 3, resource: { buffer: kernel_buffer } }
+			]
+		});
+
+		const v_bind_group = device!.createBindGroup({
+			label: 'gaussian blur vertical bind group',
+			layout: gaussian_blur_v.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: uniforms_buffer } },
+				{ binding: 1, resource: gaussian_blur_intermediate_texture.createView() },
+				{ binding: 2, resource: output_texture.createView() },
+				{ binding: 3, resource: { buffer: kernel_buffer } }
+			]
+		});
+
+		const workgroups_x = Math.ceil(imageBitMap.width / 16);
+		const workgroups_y = Math.ceil(imageBitMap.height / 16);
+
+		const h_encoder = device!.createCommandEncoder({ label: 'gaussian blur horizontal encoder' });
+		const h_pass = h_encoder.beginComputePass({ label: 'gaussian blur horizontal compute pass' });
+		h_pass.setPipeline(gaussian_blur_h);
+		h_pass.setBindGroup(0, h_bind_group);
+		h_pass.dispatchWorkgroups(workgroups_x, workgroups_y);
+		h_pass.end();
+		device!.queue.submit([h_encoder.finish()]);
+		await device!.queue.onSubmittedWorkDone();
+
+		const v_encoder = device!.createCommandEncoder({ label: 'gaussian blur vertical encoder' });
+		const v_pass = v_encoder.beginComputePass({ label: 'gaussian blur vertical compute pass' });
+		v_pass.setPipeline(gaussian_blur_v);
+		v_pass.setBindGroup(0, v_bind_group);
+		v_pass.dispatchWorkgroups(workgroups_x, workgroups_y);
+		v_pass.end();
+		device!.queue.submit([v_encoder.finish()]);
+		await device!.queue.onSubmittedWorkDone();
+	}
+
+	async function difference_of_gaussian_pass(
+		threshold: number,
+		output_texture: GPUTexture
+	): Promise<void> {
+		const uniforms_data = new Float32Array([threshold]);
+		const uniforms_buffer = device!.createBuffer({
+			label: 'dog threshold buffer',
+			size: uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+		device!.queue.writeBuffer(uniforms_buffer, 0, uniforms_data);
+
+		const bind_group = device!.createBindGroup({
+			label: 'difference of gaussian bind group',
+			layout: diff_gaussian.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: { buffer: uniforms_buffer } },
+				{ binding: 1, resource: dog_blur_a_texture.createView() },
+				{ binding: 2, resource: dog_blur_b_texture.createView() },
+				{ binding: 3, resource: output_texture.createView() }
+			]
+		});
+
+		const wg_x = Math.ceil(imageBitMap.width / 16);
+		const wg_y = Math.ceil(imageBitMap.height / 16);
+
+		const encoder = device!.createCommandEncoder({ label: 'difference of gaussian encoder' });
+		const pass = encoder.beginComputePass({ label: 'difference of gaussian compute pass' });
+		pass.setPipeline(diff_gaussian);
+		pass.setBindGroup(0, bind_group);
+		pass.dispatchWorkgroups(wg_x, wg_y);
+		pass.end();
+
+		device!.queue.submit([encoder.finish()]);
+		await device!.queue.onSubmittedWorkDone();
+	}
+
 	await srgb_to_oklab_pass();
 	for (var pass_index = 0; pass_index < num_passes; pass_index++) {
 		const startTime = performance.now();
@@ -585,6 +851,23 @@ export async function run_shader(
 		const endTime = performance.now();
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
-	await oklab_to_srgb_pass(pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping);
+
+	const dog_radius_a = 3;
+	const dog_radius_b = 9;
+	await gaussian_blur_pass(
+		dog_radius_a,
+		pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping,
+		dog_blur_a_texture
+	);
+	await gaussian_blur_pass(
+		dog_radius_b,
+		pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping,
+		dog_blur_b_texture
+	);
+
+	const dog_threshold = 0.05;
+	await difference_of_gaussian_pass(dog_threshold, blurred_oklab_texture);
+
+	await oklab_to_srgb_pass(blurred_oklab_texture);
 	return [true, await get_pixels()];
 }
