@@ -1,6 +1,7 @@
 struct FloatUniforms {
     base_bandwidth: f32,
-    median_density_score: f32,
+    mean_density_score: f32,
+    alpha: f32, /// controls how strongly the density matters
 }
 
 struct UintUniforms {
@@ -32,10 +33,12 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let index = pos.x + dims.x * pos.y;
     let color = textureLoad(input_colors, pos, 0);
     var cluster_sum = vec4f(0.0);
-    var cluster_count = 0u;
 
     let bandwidth = get_bandwidth(input_density_scores[index]);
     let bandwidth_squared = bandwidth * bandwidth;
+
+    // count the total weights to divide by later
+    var weights_sum = 0f;
 
     let x0 = select(0u, pos.x - uint_uniforms.cluster_check_radius, pos.x >= uint_uniforms.cluster_check_radius);
     let y0 = select(0u, pos.y - uint_uniforms.cluster_check_radius, pos.y >= uint_uniforms.cluster_check_radius);
@@ -43,32 +46,36 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let y1 = min(dims.y, pos.y + uint_uniforms.cluster_check_radius + 1u);
     for (var i = x0; i < x1; i++) {
         for (var j = y0; j < y1; j++) {
+            // dont compare the pixel to itsself
+            if (i == pos.x && j == pos.y) {continue;}
+
             let other = textureLoad(input_colors, vec2u(i,j), 0);
 
-            let delta = color - other;
-            let dist_squared = dot(delta, delta);
+            let color_delta = color.xyz - other.xyz;
+            let image_delta = vec2f(pos) - vec2f(f32(i), f32(j));
+            let color_dist_squared = dot(color_delta, color_delta);
+            let image_dist_squared = dot(image_delta, image_delta);
 
-            if dist_squared < bandwidth_squared {
-                cluster_sum += other;
-                cluster_count += 1u;
-            }
+            let weight = exp(-(color_dist_squared * image_dist_squared) / (2 * bandwidth_squared));
+            cluster_sum += other * weight;
+            weights_sum += weight;
         }
     }
 
     // TODO: do we want to include the alpha in the average, or should we instead set it to always be 1? or what?
-    let new_color = cluster_sum / f32(cluster_count);
+    let new_color = cluster_sum / weights_sum;
     textureStore(output_colors, pos, vec4f(new_color));
 }
 
+
 // per-color bandwidth calculation
 fn get_bandwidth(density_score: f32) -> f32 {
-    const alpha = 0.35; // controls how strongly the density matters
     const epsilon = 0.000001; // prevents divide by zero
-    const min_mult = 0.1;
-    const max_mult = 2.0;
+    const min_mult = 0.1f;
+    const max_mult = 2f;
 
-    return (
-        float_uniforms.base_bandwidth *
-        clamp(pow(float_uniforms.median_density_score / (density_score + epsilon), alpha), min_mult, max_mult)
-    );
+    // let mult = clamp(pow(float_uniforms.mean_density_score / (density_score + epsilon), alpha), min_mult, max_mult);
+    let mult = clamp(float_uniforms.mean_density_score / (density_score + epsilon), min_mult, max_mult);
+
+    return float_uniforms.base_bandwidth * mult;
 }
