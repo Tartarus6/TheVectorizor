@@ -14,7 +14,6 @@ const partial_sum_size: number = 8;
 // TODO: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
 // TODO: implement debug canvas view (showing the density scores texture)
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
-// TODO: (maybe) fix cluster_check_radius cost explosion by doing sparse neighbor checks. might be possible then to remove cluster_check_radius and replace with some variable that controls how many points are checked, just checking sparsely across the whole image
 // TODO: prevent needing to do texture loads in mean shift cluster step. calculate and store color_dist_squared and image_dist_squared in update_density_scores.wgsl
 // TODO: keep density scores as a buffer, don't turn back into number.
 // TODO: figure out a good value for partial_sum_size
