@@ -8,10 +8,10 @@
 
 	let imageUploaded: HTMLImageElement | undefined = $state();
 
-	let base_bandwidth = $state(0.05);
+	let base_bandwidth = $state(0.01);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
 	let tile_size = $state(512);
-	let num_passes = $state(10);
+	let num_passes = $state(5);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let canvas_scale = $state(4);

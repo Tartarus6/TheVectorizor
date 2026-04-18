@@ -4,7 +4,7 @@ import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass
 import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
 import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
-import difference_of_gaussian_shader from '$lib/shaders/difference_of_gaussians.wgsl?raw';
+import texture_gradient_shader from '$lib/shaders/texture_gradient.wgsl?raw';
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -122,7 +122,7 @@ export async function run_shader(
 
 	const difference_of_gaussian_module = device.createShaderModule({
 		label: 'difference of gaussian module',
-		code: difference_of_gaussian_shader
+		code: texture_gradient_shader
 	});
 
 	const diff_gaussian = device.createRenderPipeline({
@@ -856,9 +856,9 @@ export async function run_shader(
 			label: 'difference of gaussian bind group',
 			layout: diff_gaussian.getBindGroupLayout(0),
 			entries: [
-				{ binding: 0, resource: { buffer: uniforms_buffer } },
-				{ binding: 1, resource: dog_blur_a_texture.createView() },
-				{ binding: 2, resource: dog_blur_b_texture.createView() }
+				// { binding: 0, resource: { buffer: uniforms_buffer } },
+				{ binding: 0, resource: dog_blur_a_texture.createView() }
+				// { binding: 2, resource: dog_blur_b_texture.createView() }
 			]
 		});
 
