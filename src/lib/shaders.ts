@@ -257,7 +257,7 @@ export async function run_shader(
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
-	const blurred_oklab_texture = device.createTexture({
+	const dog_output_texture = device.createTexture({
 		label: 'blurred oklab texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
@@ -916,9 +916,9 @@ export async function run_shader(
 		dog_blur_b_texture
 	);
 
-	const dog_threshold = 0.05;
-	await difference_of_gaussian_pass(dog_threshold, blurred_oklab_texture);
+	const dog_threshold = 0.01;
+	await difference_of_gaussian_pass(dog_threshold, dog_output_texture);
 
-	await oklab_to_srgb_pass(blurred_oklab_texture);
+	await oklab_to_srgb_pass(dog_output_texture);
 	return [true, await get_pixels()];
 }

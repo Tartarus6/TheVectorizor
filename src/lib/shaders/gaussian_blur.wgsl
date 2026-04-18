@@ -54,7 +54,7 @@ fn blur_horizontal(in: VsOut) -> @location(0) vec4f {
 
     for (var i: i32 = -r; i <= r; i = i + 1) {
         let x = clamp(i32(texel.x) + i, 0, i32(dims.x) - 1);
-        let sample = textureLoad(input_tex, vec2i(x, i32(texel.y)), 0).rgb;
+        let sample = textureLoad(input_tex, vec2i(x, i32(texel.y)), 0).xyz;
         let idx = u32(abs(i));
         sum = sum + sample * gaussian_weights[idx];
     }
@@ -82,7 +82,7 @@ fn blur_vertical(in: VsOut) -> @location(0) vec4f {
 
     for (var i: i32 = -r; i <= r; i = i + 1) {
         let y = clamp(i32(texel.y) + i, 0, i32(dims.y) - 1);
-        let sample = textureLoad(input_tex, vec2i(i32(texel.x), y), 0).rgb;
+        let sample = textureLoad(input_tex, vec2i(i32(texel.x), y), 0).xyz;
         let idx = u32(abs(i));
         sum = sum + sample * gaussian_weights[idx];
     }
