@@ -24,6 +24,9 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) turn update_density_scores into a fragment shader
 // TODO: (maybe) turn mean_shift_cluster_step into a fragment shader
 
+// EDGE DETECTION TODOS
+// TODO: filter maxima to find only important edges
+
 // GENERAL TODOS
 // TODO: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
 // TODO: deal with unused alpha. (need to figure what makes for a good function, and if alpha should be removed or not)
@@ -55,6 +58,7 @@ export async function run_shader(
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
 	tile_size: number,
+	blur_radius: number,
 	num_passes: number
 ): Promise<[boolean, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
@@ -577,7 +581,7 @@ export async function run_shader(
 		}
 	}
 
-	// --- Mean Density Score Passes ---
+	// --- Mean Density Score Steps Pass ---
 	async function get_mean_density_score(): Promise<number> {
 		const mean_density_score_pipeline = device!.createComputePipeline({
 			label: 'mean density score compute pipeline',
@@ -972,9 +976,8 @@ export async function run_shader(
 	startTime = performance.now();
 	console.log();
 	console.log('Blur:');
-	const gaussian_blur_radius = 1;
 	await gaussian_blur_pass(
-		gaussian_blur_radius,
+		blur_radius,
 		pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping,
 		gaussian_blur_texture
 	);
