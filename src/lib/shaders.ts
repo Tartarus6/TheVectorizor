@@ -1,6 +1,6 @@
 import mean_shift_cluster_step_shader from '$lib/shaders/mean_shift_cluster_step.wgsl?raw';
 import update_density_scores_shader from '$lib/shaders/update_density_scores.wgsl?raw';
-import mean_density_score_pass_shader from '$lib/shaders/mean_density_score_pass.wgsl?raw';
+import calculate_mean_step_shader from '$lib/shaders/calculate_mean_step.wgsl?raw';
 import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
 import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
@@ -173,7 +173,7 @@ export async function run_shader(
 		compute: {
 			module: device.createShaderModule({
 				label: 'mean density score module',
-				code: mean_density_score_pass_shader
+				code: calculate_mean_step_shader
 			}),
 			entryPoint: 'cs_main'
 		}
@@ -585,7 +585,7 @@ export async function run_shader(
 			compute: {
 				module: device!.createShaderModule({
 					label: 'mean density score module',
-					code: mean_density_score_pass_shader
+					code: calculate_mean_step_shader
 				}),
 				entryPoint: 'cs_main'
 			}
