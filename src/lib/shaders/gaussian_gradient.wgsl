@@ -1,6 +1,10 @@
-// struct Uniforms {
-//     threshold: f32,
-// }
+/*
+This shader calculates the gradient (the derivative) of the given texture.
+
+The purpose in TheVectorizer, is for this shader to be given a gaussian blurred texture,
+then this shader calculates the direction and magnitude of color change at each pixel in
+the x and y directions.
+*/
 
 struct VsOut {
     @builtin(position) pos: vec4f,
@@ -30,7 +34,6 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 }
 
 
-// @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(0) var in_tex: texture_2d<f32>;
 
 
@@ -61,13 +64,15 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let C = dot(gy, gy);
 
     let theta = 0.5 * atan2(2f * B, A - C);
-    let grad_dir = vec2f(cos(theta), sin(theta));
+    let grad_dir = vec2f(cos(theta), sin(theta));  // TODO: is this needed?
 
     let grad_mag = sqrt(0.5 * ((A + C) + sqrt((A - C)*(A - C) + (4f * B * B))));
 
-    // TODO: below stuff is just for testing visualization, and is completely subject to change
-    let combined = vec3f(abs(gx.x * cos(theta)) + abs(gy.x * sin(theta)), gx.yz * abs(cos(theta)) + gy.yz * abs(sin(theta))); // shows the color gradient
+    return vec4f(theta, grad_mag, 0, 0);
+
+    // TODO: below stuff is just for testing visualization
+    // let combined = vec3f(abs(gx.x * cos(theta)) + abs(gy.x * sin(theta)), gx.yz * abs(cos(theta)) + gy.yz * abs(sin(theta))); // shows the color gradient
     // let combined = vec3f(grad_mag, grad_dir * 0.5 * grad_mag); // shows the direction of the gradient
 
-    return vec4f(combined, 1);
+    // return vec4f(combined, 1);
 }
