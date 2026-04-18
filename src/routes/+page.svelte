@@ -138,7 +138,7 @@
 	{/if}
 </div>
 
-<div class="flex flex-col">
+<div class="flex w-fit flex-col gap-2 bg-black">
 	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>
