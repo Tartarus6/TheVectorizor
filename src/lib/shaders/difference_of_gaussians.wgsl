@@ -53,8 +53,8 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let delta = pixelA - pixelB;
     let d = length(delta);
 
-    if (d >= uniforms.threshold) {
-        return vec4f(1.0, 1.0, 1.0, 1.0);
+    if (d <= uniforms.threshold) {
+        return vec4f(1.0, 0.0, 0.0, 1.0);
     } else {
         return vec4f(0.0, 0.0, 0.0, 1.0);
     }
