@@ -13,7 +13,7 @@ const partial_sum_size: number = 8;
 
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
-// TODO: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
+// DONE: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
 // TODO: implement debug canvas view (showing the density scores texture)
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
 // TODO: prevent needing to do texture loads in mean shift cluster step. calculate and store color_dist_squared and image_dist_squared in update_density_scores.wgsl
