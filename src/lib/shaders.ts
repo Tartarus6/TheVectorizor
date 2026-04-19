@@ -51,11 +51,12 @@ function compute_gaussian_kernel(radius: number): Float32Array {
 }
 
 export async function run_shader(
+	outputCanvas: GPUCanvasContext,
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
 	tile_size: number,
 	num_passes: number
-): Promise<[boolean, Uint8ClampedArray]> {
+): Promise<boolean> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
@@ -63,7 +64,7 @@ export async function run_shader(
 	if (!device) {
 		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
-		return [false, new Uint8ClampedArray()];
+		return false;
 	}
 
 	// --- Pipelines ---
@@ -324,7 +325,7 @@ export async function run_shader(
 	}
 
 	// --- OkLab to sRGB Pass ---
-	async function oklab_to_srgb_pass(texture: GPUTexture) {
+	async function oklab_to_srgb_pass(texture: GPUTexture, context: GPUCanvasContext) {
 		const oklab_to_srgb_module = device!.createShaderModule({
 			label: 'oklab to srgb module',
 			code: oklab_to_srgb_shader
@@ -341,7 +342,8 @@ export async function run_shader(
 				module: oklab_to_srgb_module,
 				targets: [
 					{
-						format: 'rgba8unorm'
+						format: 'bgra8unorm'
+						// format: 'rgba8unorm' use this if you want to introduce back the pixel by pixel thing , no reason to thouh
 					}
 				]
 			}
@@ -353,8 +355,7 @@ export async function run_shader(
 			entries: [{ binding: 0, resource: texture.createView() }]
 		});
 
-		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
-		const pass = encoder.beginRenderPass({
+		const renderPassDescriptor: GPURenderPassDescriptor = {
 			label: 'oklab to srgb render pass',
 			colorAttachments: [
 				{
@@ -364,7 +365,17 @@ export async function run_shader(
 					storeOp: 'store'
 				}
 			]
+		};
+		const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+		context.configure({
+			device: device!,
+			format: presentationFormat
 		});
+		renderPassDescriptor.colorAttachments[0]!.view = context.getCurrentTexture().createView();
+
+		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
+
+		const pass = encoder.beginRenderPass(renderPassDescriptor);
 
 		pass.setPipeline(oklab_to_srgb_pipeline);
 		pass.setBindGroup(0, bind_group);
@@ -374,42 +385,44 @@ export async function run_shader(
 		device!.queue.submit([encoder.finish()]);
 	}
 
-	async function get_pixels(): Promise<Uint8ClampedArray> {
-		const bytes_per_row = Math.ceil((imageBitMap.width * 4) / 256) * 256;
-		const readback_buffer = device!.createBuffer({
-			label: 'pixel readback buffer',
-			size: bytes_per_row * imageBitMap.height,
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-		});
+	// this is the old way to render the thing ,no need for this anymore, if needed add back in later
 
-		const encoder = device!.createCommandEncoder({ label: 'get pixels encoder' });
-		encoder.copyTextureToBuffer(
-			{ texture: output_srgb_texture },
-			{ buffer: readback_buffer, bytesPerRow: bytes_per_row },
-			{ width: imageBitMap.width, height: imageBitMap.height }
-		);
+	// async function get_pixels(): Promise<Uint8ClampedArray> {
+	// 	const bytes_per_row = Math.ceil((imageBitMap.width * 4) / 256) * 256;
+	// 	const readback_buffer = device!.createBuffer({
+	// 		label: 'pixel readback buffer',
+	// 		size: bytes_per_row * imageBitMap.height,
+	// 		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+	// 	});
 
-		device!.queue.submit([encoder.finish()]);
+	// 	const encoder = device!.createCommandEncoder({ label: 'get pixels encoder' });
+	// 	encoder.copyTextureToBuffer(
+	// 		{ texture: output_srgb_texture },
+	// 		{ buffer: readback_buffer, bytesPerRow: bytes_per_row },
+	// 		{ width: imageBitMap.width, height: imageBitMap.height }
+	// 	);
 
-		await readback_buffer.mapAsync(GPUMapMode.READ);
-		const raw = new Uint8Array(readback_buffer.getMappedRange().slice());
-		readback_buffer.unmap();
+	// 	device!.queue.submit([encoder.finish()]);
 
-		// remove row padding introduced by WebGPU alignment requirements
-		const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
-		for (let y = 0; y < imageBitMap.height; y++) {
-			for (let x = 0; x < imageBitMap.width; x++) {
-				const src = y * bytes_per_row + x * 4;
-				const dst = y * imageBitMap.width * 4 + x * 4;
-				pixels[dst] = raw[src];
-				pixels[dst + 1] = raw[src + 1];
-				pixels[dst + 2] = raw[src + 2];
-				pixels[dst + 3] = raw[src + 3];
-			}
-		}
+	// 	await readback_buffer.mapAsync(GPUMapMode.READ);
+	// 	const raw = new Uint8Array(readback_buffer.getMappedRange().slice());
+	// 	readback_buffer.unmap();
 
-		return pixels;
-	}
+	// 	// remove row padding introduced by WebGPU alignment requirements
+	// 	const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
+	// 	for (let y = 0; y < imageBitMap.height; y++) {
+	// 		for (let x = 0; x < imageBitMap.width; x++) {
+	// 			const src = y * bytes_per_row + x * 4;
+	// 			const dst = y * imageBitMap.width * 4 + x * 4;
+	// 			pixels[dst] = raw[src];
+	// 			pixels[dst + 1] = raw[src + 1];
+	// 			pixels[dst + 2] = raw[src + 2];
+	// 			pixels[dst + 3] = raw[src + 3];
+	// 		}
+	// 	}
+
+	// 	return pixels;
+	// }
 
 	// --- Density Scores Pass ---
 	const in_partial_sums_buffer = device!.createBuffer({
@@ -867,6 +880,6 @@ export async function run_shader(
 	const dog_threshold = 0.05;
 	await difference_of_gaussian_pass(dog_threshold, blurred_oklab_texture);
 
-	await oklab_to_srgb_pass(blurred_oklab_texture);
-	return [true, await get_pixels()];
+	await oklab_to_srgb_pass(blurred_oklab_texture, outputCanvas);
+	return true;
 }
