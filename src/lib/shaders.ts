@@ -25,7 +25,11 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) turn mean_shift_cluster_step into a fragment shader
 
 // EDGE DETECTION TODOS
-// TODO: filter maxima to find only important edges
+// DONE: filter maxima to find only important edges
+// TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
+// TODO: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
+// TODO: implement Canny double threshold. Above H, maxima are immediately accepted, and abolve L, pixels are taken if connected to valid points. Below L are ignored. (H and L should be calculated based on image)
+// TODO: (maybe) switch to including alpha in gradient math, rather than just Lab
 
 // GENERAL TODOS
 // TODO: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables

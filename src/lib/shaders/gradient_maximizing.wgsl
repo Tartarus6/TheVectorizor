@@ -79,6 +79,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
         0.0
     ).y;
 
+    // TODO: refine the node position to have the maximum not just be the center of the pixel (check neighbors to find actual maximum)
 
     // if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.001) {
     if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.1) {
