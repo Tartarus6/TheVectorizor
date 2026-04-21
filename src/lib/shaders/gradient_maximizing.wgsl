@@ -80,8 +80,9 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     ).y;
 
 
-    if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag) {
-        return vec4f(1, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), grad_mag);
+    // if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.001) {
+    if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.1) {
+        return vec4f(1, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), 1);
     } else {
         return vec4f(0, 0, 0, 0);
     }

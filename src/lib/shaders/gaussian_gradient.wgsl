@@ -55,8 +55,14 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let down = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(0, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
     let up = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(0, -1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
 
-    let gx = right.xyz - left.xyz; // dColor / dx
-    let gy = down.xyz - up.xyz;    // dColor / dy
+    let down_right = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(1, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
+    let up_left = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(-1, -1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
+    let up_right = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(1, -1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
+    let down_left = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(-1, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
+
+    // sobel filter
+    let gx = 2 * (right.xyz - left.xyz) + (down_right.xyz - up_left.xyz) + (up_right.xyz - down_left.xyz); // dColor / dx
+    let gy = 2 * (down.xyz - up.xyz) + (down_right.xyz - up_left.xyz) + (down_left.xyz - up_right.xyz);    // dColor / dy
 
     // --- DiZenzo-style multi-channel gradient tensor ---
     let A = dot(gx, gx);
