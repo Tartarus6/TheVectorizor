@@ -189,7 +189,12 @@ export async function run_shader(
 		label: 'input srgb texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST
 	});
 
 	const oklab_texture_ping = device.createTexture({
@@ -210,6 +215,7 @@ export async function run_shader(
 		format: 'rgba16float',
 		usage:
 			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
 			GPUTextureUsage.STORAGE_BINDING |
 			GPUTextureUsage.COPY_SRC |
 			GPUTextureUsage.COPY_DST
@@ -220,7 +226,11 @@ export async function run_shader(
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
 		usage:
-			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST
 	});
 
 	const gaussian_blur_intermediate_texture = device.createTexture({
