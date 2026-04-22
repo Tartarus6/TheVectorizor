@@ -6,6 +6,7 @@ import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
 import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
+import { textureToEdgeSvg } from '$lib/edge_svg';
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -64,7 +65,7 @@ export async function run_shader(
 	tile_size: number,
 	blur_radius: number,
 	num_passes: number
-): Promise<[boolean, Uint8ClampedArray]> {
+): Promise<[boolean, string, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
@@ -72,7 +73,7 @@ export async function run_shader(
 	if (!device) {
 		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
-		return [false, new Uint8ClampedArray()];
+		return [false, '', new Uint8ClampedArray()];
 	}
 
 	// --- Pipelines ---
@@ -306,7 +307,8 @@ export async function run_shader(
 		usage:
 			GPUTextureUsage.TEXTURE_BINDING |
 			GPUTextureUsage.STORAGE_BINDING |
-			GPUTextureUsage.RENDER_ATTACHMENT
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.COPY_SRC
 	});
 
 	const gradient_max_sampler = device.createSampler({
@@ -1004,10 +1006,17 @@ export async function run_shader(
 
 	startTime = performance.now();
 	console.log();
-	console.log('OkLab -> Srgb:');
-	await oklab_to_srgb_pass(gradient_max_output_texture);
+	console.log('Edge SVG:');
+	const svg = await textureToEdgeSvg(
+		device,
+		gradient_max_output_texture,
+		imageBitMap.width,
+		imageBitMap.height
+	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	return [true, await get_pixels()];
+	oklab_to_srgb_pass(gradient_max_output_texture);
+
+	return [true, svg, await get_pixels()];
 }

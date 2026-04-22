@@ -44,6 +44,12 @@ grad_tex: texture_2d<f32>
     y -> grad_mag (magnitude of gradient)
     z -> 0        (unused)
     a -> 0        (unused)
+
+output:
+    x -> edge flag
+    y -> grad_mag
+    z -> theta
+    a -> 1
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var grad_sampler: sampler;
@@ -83,6 +89,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 
     // if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.001) {
     if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.1) {
+        // return vec4f(1, grad_mag, theta, 1);
         return vec4f(1, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), 1);
     } else {
         return vec4f(0, 0, 0, 0);

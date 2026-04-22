@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { run_shader } from '$lib/shaders';
 
+	let svgUrl: string | undefined = $state();
+
 	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another
 	// TODO: figure out good ranges for the input variables (like blur radius), and maybe dont hardcode the limits
 
@@ -16,7 +18,8 @@
 	let blur_radius = $state(1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
-	let canvas_scale = $state(4);
+	let svg_preview: HTMLImageElement | undefined = $state();
+	let canvas_scale = $state(30);
 
 	const onFileSelected = (e: any) => {
 		const file = e.target.files[0];
@@ -30,6 +33,19 @@
 		};
 		console.log(uploadedImageUrl!);
 	};
+
+	function apply_svg_display_scale(target: HTMLImageElement | undefined) {
+		if (!image) {
+			return;
+		}
+
+		if (!target) {
+			return;
+		}
+
+		target.style.width = `${image.width * canvas_scale}px`;
+		target.style.height = `${image.height * canvas_scale}px`;
+	}
 
 	function apply_canvas_display_scale(target: HTMLCanvasElement | undefined) {
 		if (!image) {
@@ -46,8 +62,8 @@
 	}
 
 	$effect(() => {
-		apply_canvas_display_scale(canvas);
 		apply_canvas_display_scale(image_canvas);
+		apply_svg_display_scale(svg_preview);
 	});
 </script>
 
@@ -56,7 +72,7 @@
 <div class="flex w-92 flex-col">
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
 		<span>Canvas Scale: {canvas_scale}</span>
-		<input type="range" bind:value={canvas_scale} min={1} max={5} />
+		<input type="range" bind:value={canvas_scale} min={1} max={30} />
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
@@ -124,7 +140,7 @@
 			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
 
 			const startTime = performance.now();
-			const [success, pixels] = await run_shader(
+			const [success, svg, pixels] = await run_shader(
 				image,
 				base_bandwidth,
 				tile_size,
@@ -140,7 +156,13 @@
 				const safePixels = new Uint8ClampedArray(new ArrayBuffer(pixels.length));
 				safePixels.set(pixels);
 				const ctx = canvas!.getContext('2d')!;
+
 				ctx.putImageData(new ImageData(safePixels, image.width, image.height), 0, 0);
+				if (svgUrl) {
+					URL.revokeObjectURL(svgUrl);
+				}
+
+				svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
 			}
 		}}
 		class="m-2 w-fit cursor-pointer bg-purple-500 p-2"
@@ -162,6 +184,9 @@
 </div>
 
 <div class="flex w-fit flex-col gap-2 bg-black">
-	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
+	{#if svgUrl}
+		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="bg-white" />
+	{/if}
 </div>
