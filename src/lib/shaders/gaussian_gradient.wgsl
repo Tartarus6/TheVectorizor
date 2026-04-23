@@ -74,6 +74,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 
     let grad_mag = sqrt(0.5 * ((A + C) + sqrt((A - C)*(A - C) + (4f * B * B))));
 
+    // TODO: switch texture format to match the one used for gradient maximizing
     return vec4f(theta, grad_mag, 0, 0);
 
     // TODO: below stuff is just for testing visualization

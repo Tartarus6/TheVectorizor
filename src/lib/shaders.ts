@@ -6,6 +6,7 @@ import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
 import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
 import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
+import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
 import { textureToEdgeSvg } from '$lib/edge_svg';
 
 // TODO: move this const somewhere better
@@ -64,7 +65,8 @@ export async function run_shader(
 	base_bandwidth: number,
 	tile_size: number,
 	blur_radius: number,
-	num_passes: number
+	num_cluster_passes: number,
+	num_edge_trace_passes: number
 ): Promise<[boolean, string, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
@@ -168,6 +170,29 @@ export async function run_shader(
 		fragment: {
 			entryPoint: 'cs_main',
 			module: gradient_max_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
+
+	const edge_trace_module = device.createShaderModule({
+		label: 'edge tracing module',
+		code: edge_tracing_step_shader
+	});
+
+	const edge_trace_pipeline = device.createRenderPipeline({
+		label: 'edge tracing pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: edge_trace_module
+		},
+		fragment: {
+			entryPoint: 'cs_main',
+			module: edge_trace_module,
 			targets: [
 				{
 					format: 'rgba16float'
@@ -309,6 +334,22 @@ export async function run_shader(
 			GPUTextureUsage.STORAGE_BINDING |
 			GPUTextureUsage.RENDER_ATTACHMENT |
 			GPUTextureUsage.COPY_SRC
+	});
+
+	const edge_trace_output_texture_ping = device.createTexture({
+		label: 'edge tracing output texture ping',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+	});
+
+	const edge_trace_output_texture_pong = device.createTexture({
+		label: 'edge tracing output texture pong',
+		size: [imageBitMap.width, imageBitMap.height],
+		format: 'rgba16float',
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
 	});
 
 	const gradient_max_sampler = device.createSampler({
@@ -951,6 +992,40 @@ export async function run_shader(
 		await device!.queue.onSubmittedWorkDone();
 	}
 
+	async function edge_trace_pass(
+		in_edge_texture: GPUTexture,
+		out_edge_texture: GPUTexture
+	): Promise<void> {
+		const bind_group = device!.createBindGroup({
+			label: 'edge tracing bind group',
+			layout: edge_trace_pipeline.getBindGroupLayout(0),
+			entries: [
+				{ binding: 0, resource: in_edge_texture.createView() },
+				{ binding: 1, resource: gradient_max_sampler }
+			]
+		});
+
+		const encoder = device!.createCommandEncoder({ label: 'edge tracing encoder' });
+		const pass = encoder.beginRenderPass({
+			label: 'edge tracing render pass',
+			colorAttachments: [
+				{
+					view: out_edge_texture.createView(),
+					clearValue: [0, 0, 0, 0],
+					loadOp: 'clear',
+					storeOp: 'store'
+				}
+			]
+		});
+		pass.setPipeline(edge_trace_pipeline);
+		pass.setBindGroup(0, bind_group);
+		pass.draw(3);
+		pass.end();
+
+		device!.queue.submit([encoder.finish()]);
+		await device!.queue.onSubmittedWorkDone();
+	}
+
 	let startTime = performance.now();
 	let endTime = performance.now();
 
@@ -961,7 +1036,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	for (var pass_index = 0; pass_index < num_passes; pass_index++) {
+	for (var pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
 		startTime = performance.now();
 
 		console.log();
@@ -1004,19 +1079,44 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	let final_edge_texture = gradient_max_output_texture;
+	if (num_edge_trace_passes > 0) {
+		for (
+			let edge_trace_pass_index = 0;
+			edge_trace_pass_index < num_edge_trace_passes;
+			edge_trace_pass_index++
+		) {
+			startTime = performance.now();
+			console.log();
+			console.log('Edge Trace Pass:', edge_trace_pass_index);
+
+			const output_texture =
+				edge_trace_pass_index % 2 === 0
+					? edge_trace_output_texture_ping
+					: edge_trace_output_texture_pong;
+
+			await edge_trace_pass(final_edge_texture, output_texture);
+			final_edge_texture = output_texture;
+
+			endTime = performance.now();
+			console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+		}
+	}
+
+	// TODO: the svg implementation below is not final. it's just for testing.
 	startTime = performance.now();
 	console.log();
 	console.log('Edge SVG:');
 	const svg = await textureToEdgeSvg(
 		device,
-		gradient_max_output_texture,
+		final_edge_texture,
 		imageBitMap.width,
 		imageBitMap.height
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	oklab_to_srgb_pass(gradient_max_output_texture);
+	oklab_to_srgb_pass(final_edge_texture);
 
 	return [true, svg, await get_pixels()];
 }

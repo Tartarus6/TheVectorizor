@@ -14,12 +14,13 @@
 	let base_bandwidth = $state(0.05);
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
 	let tile_size = $state(512);
-	let num_passes = $state(5);
+	let num_cluster_passes = $state(5);
+	let num_edge_trace_passes = $state(1);
 	let blur_radius = $state(1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
-	let canvas_scale = $state(30);
+	let canvas_scale = $state(8);
 
 	const onFileSelected = (e: any) => {
 		const file = e.target.files[0];
@@ -83,6 +84,7 @@
 				bind:value={base_bandwidth}
 				min={0}
 				max={1}
+				step={0.0001}
 				class="min-w-20 border-2 border-white"
 			/>
 		</div>
@@ -126,8 +128,13 @@
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
-		<span>Passes: {num_passes}</span>
-		<input type="range" bind:value={num_passes} min={1} max={20} />
+		<span>Cluster Passes: {num_cluster_passes}</span>
+		<input type="range" bind:value={num_cluster_passes} min={1} max={20} />
+	</div>
+
+	<div class="m-2 flex flex-col bg-slate-500 p-2">
+		<span>Edge Trace Passes: {num_edge_trace_passes}</span>
+		<input type="range" bind:value={num_edge_trace_passes} min={0} max={20} />
 	</div>
 
 	<button
@@ -145,7 +152,8 @@
 				base_bandwidth,
 				tile_size,
 				blur_radius,
-				num_passes
+				num_cluster_passes,
+				num_edge_trace_passes
 			);
 			const endTime = performance.now();
 			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
