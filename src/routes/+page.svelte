@@ -107,18 +107,19 @@
 			image_canvas!.height = image.height;
 			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
 
+			const cvsctx = canvas!.getContext('webgpu');
+			canvas!.width = image.width;
+			canvas!.height = image.height;
+			if (cvsctx == null) {
+				alert('context didnt work');
+			}
 			const startTime = performance.now();
-			const [success, pixels] = await run_shader(image, base_bandwidth, tile_size, num_passes);
-			const endTime = performance.now();
-			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
-
+			const success = await run_shader(cvsctx!, image, base_bandwidth, tile_size, num_passes);
 			if (success) {
-				canvas!.width = image.width;
-				canvas!.height = image.height;
-				const safePixels = new Uint8ClampedArray(new ArrayBuffer(pixels.length));
-				safePixels.set(pixels);
-				const ctx = canvas!.getContext('2d')!;
-				ctx.putImageData(new ImageData(safePixels, image.width, image.height), 0, 0);
+				const endTime = performance.now();
+				console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
+			} else {
+				console.log('something went wrong');
 			}
 		}}
 		class="m-2 w-fit cursor-pointer bg-purple-500 p-2"
@@ -139,7 +140,10 @@
 	{/if}
 </div>
 
-<div class="flex flex-col">
+<div class="flex w-fit flex-col bg-slate-600 p-2">
+	<h3>output images</h3>
+	<h4>edges</h4>
 	<canvas bind:this={canvas} style="image-rendering: pixelated;"></canvas>
+	<h4>base image</h4>
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>
