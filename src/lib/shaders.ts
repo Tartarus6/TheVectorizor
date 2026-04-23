@@ -67,7 +67,7 @@ export async function run_shader(
 	blur_radius: number,
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
-): Promise<[boolean, string, Uint8ClampedArray]> {
+): Promise<[boolean, string, Uint8ClampedArray, Uint8ClampedArray]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
@@ -75,7 +75,7 @@ export async function run_shader(
 	if (!device) {
 		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
-		return [false, '', new Uint8ClampedArray()];
+		return [false, '', new Uint8ClampedArray(), new Uint8ClampedArray()];
 	}
 
 	// --- Pipelines ---
@@ -183,21 +183,12 @@ export async function run_shader(
 		code: edge_tracing_step_shader
 	});
 
-	const edge_trace_pipeline = device.createRenderPipeline({
-		label: 'edge tracing pipeline',
+	const edge_trace_pipeline = device.createComputePipeline({
+		label: 'edge tracing compute pipeline',
 		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: edge_trace_module
-		},
-		fragment: {
-			entryPoint: 'cs_main',
+		compute: {
 			module: edge_trace_module,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
+			entryPoint: 'cs_main'
 		}
 	});
 
@@ -341,7 +332,7 @@ export async function run_shader(
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
-			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
 	});
 
 	const edge_trace_output_texture_pong = device.createTexture({
@@ -349,7 +340,7 @@ export async function run_shader(
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
-			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC
+			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
 	});
 
 	const gradient_max_sampler = device.createSampler({
@@ -442,11 +433,18 @@ export async function run_shader(
 	}
 
 	// --- OkLab to sRGB Pass ---
-	async function oklab_to_srgb_pass(texture: GPUTexture) {
+	async function oklab_to_srgb_pass(texture: GPUTexture, show_edge_pixels = false) {
 		const oklab_to_srgb_module = device!.createShaderModule({
 			label: 'oklab to srgb module',
 			code: oklab_to_srgb_shader
 		});
+		const debug_uniforms_data = new Uint32Array([show_edge_pixels ? 1 : 0]);
+		const debug_uniforms_buffer = device!.createBuffer({
+			label: 'oklab to srgb debug uniforms buffer',
+			size: debug_uniforms_data.byteLength,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		});
+		device!.queue.writeBuffer(debug_uniforms_buffer, 0, debug_uniforms_data);
 		const oklab_to_srgb_pipeline = device!.createRenderPipeline({
 			label: 'oklab to srgb render pipeline',
 			layout: 'auto',
@@ -468,7 +466,10 @@ export async function run_shader(
 		const bind_group = device!.createBindGroup({
 			label: 'oklab to srgb ping bind group',
 			layout: oklab_to_srgb_pipeline.getBindGroupLayout(0),
-			entries: [{ binding: 0, resource: texture.createView() }]
+			entries: [
+				{ binding: 0, resource: texture.createView() },
+				{ binding: 1, resource: { buffer: debug_uniforms_buffer } }
+			]
 		});
 
 		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
@@ -1001,29 +1002,22 @@ export async function run_shader(
 			layout: edge_trace_pipeline.getBindGroupLayout(0),
 			entries: [
 				{ binding: 0, resource: in_edge_texture.createView() },
-				{ binding: 1, resource: gradient_max_sampler }
+				{ binding: 1, resource: gradient_max_sampler },
+				{ binding: 2, resource: out_edge_texture.createView() }
 			]
 		});
 
 		const encoder = device!.createCommandEncoder({ label: 'edge tracing encoder' });
-		const pass = encoder.beginRenderPass({
-			label: 'edge tracing render pass',
-			colorAttachments: [
-				{
-					view: out_edge_texture.createView(),
-					clearValue: [0, 0, 0, 0],
-					loadOp: 'clear',
-					storeOp: 'store'
-				}
-			]
+		const pass = encoder.beginComputePass({
+			label: 'edge tracing compute pass'
 		});
 		pass.setPipeline(edge_trace_pipeline);
 		pass.setBindGroup(0, bind_group);
-		pass.draw(3);
+		pass.dispatchWorkgroups(Math.ceil(imageBitMap.width / 16), Math.ceil(imageBitMap.height / 16));
 		pass.end();
 
 		device!.queue.submit([encoder.finish()]);
-		await device!.queue.onSubmittedWorkDone();
+		// await device!.queue.onSubmittedWorkDone();
 	}
 
 	let startTime = performance.now();
@@ -1079,6 +1073,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
 	let final_edge_texture = gradient_max_output_texture;
 	if (num_edge_trace_passes > 0) {
 		for (
@@ -1116,7 +1111,11 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	oklab_to_srgb_pass(final_edge_texture);
+	oklab_to_srgb_pass(pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping);
+	let clustered_pixels = await get_pixels();
 
-	return [true, svg, await get_pixels()];
+	oklab_to_srgb_pass(final_edge_texture, true);
+	let edge_pixels = await get_pixels();
+
+	return [true, svg, clustered_pixels, edge_pixels];
 }

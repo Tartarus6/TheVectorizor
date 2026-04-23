@@ -19,11 +19,17 @@ type EdgePath = {
 	closed: boolean;
 };
 
-const cardinalNeighborOffsets = [
-	[0, -1],
-	[-1, 0],
+const neighborOffsets = [
+	// diagonals
+	[1, 1],
+	[-1, 1],
+	[-1 - 1],
+	[1, -1],
+	// cardinals
 	[1, 0],
-	[0, 1]
+	[0, 1],
+	[-1, 0],
+	[0, -1]
 ];
 
 export async function textureToEdgeSvg(
@@ -279,7 +285,7 @@ function getNeighborIndices(
 	const neighbors: number[] = [];
 
 	// cardinal neighbors
-	for (const [offsetX, offsetY] of cardinalNeighborOffsets) {
+	for (const [offsetX, offsetY] of neighborOffsets) {
 		const nextX = x + offsetX;
 		const nextY = y + offsetY;
 

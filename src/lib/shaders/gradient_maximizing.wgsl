@@ -76,24 +76,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let theta = grad_pixel.x;
     let grad_mag = grad_pixel.y;
 
-    // let normal = vec2f(cos(theta), sin(theta));
-
-    // let texel_size = 1.0 / vec2f(f32(dims.x), f32(dims.y));
-    // let offset_uv = normal * texel_size;
-
-    // let neighbor_a_mag = textureSampleLevel(
-    //     grad_tex,
-    //     grad_sampler,
-    //     clamp(uv + offset_uv, vec2f(0.0), vec2f(1.0)),
-    //     0.0
-    // ).y;
-    // let neighbor_b_mag = textureSampleLevel(
-    //     grad_tex,
-    //     grad_sampler,
-    //     clamp(uv - offset_uv, vec2f(0.0), vec2f(1.0)),
-    //     0.0
-    // ).y;
-
+    // TODO: is there a way to cast the pixels as some struct, so that it's extra obvious that what the xyzw values are?
     let right = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(1, 0), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
     let left = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(-1, 0), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
     let down = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(0, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
@@ -112,21 +95,8 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     }
 
     if (grad_mag > right.y && grad_mag > left.y && grad_mag > down.y && grad_mag > up.y && grad_mag > down_right.y && grad_mag > up_left.y && grad_mag > up_right.y && grad_mag > down_left.y) {
-        // return vec4f(1, 0, 0, 1);
-        // return vec4f(1, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), grad_mag);
         return vec4f(1, grad_mag, theta, 1);
     }
 
-    // return vec4f(0, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), grad_mag);
-    // return vec4f(0, 0, 0, 0);
     return vec4f(0, grad_mag, theta, 0.2);
-
-
-    // // if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.001) {
-    // if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.1) {
-    //     // return vec4f(1, grad_mag, theta, 1);
-    //     return vec4f(1, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), 1);
-    // } else {
-    //     return vec4f(0, 0, 0, 0);
-    // }
 }
