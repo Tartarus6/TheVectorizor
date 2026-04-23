@@ -114,12 +114,12 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     if (grad_mag > right.y && grad_mag > left.y && grad_mag > down.y && grad_mag > up.y && grad_mag > down_right.y && grad_mag > up_left.y && grad_mag > up_right.y && grad_mag > down_left.y) {
         // return vec4f(1, 0, 0, 1);
         // return vec4f(1, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), grad_mag);
-        return vec4f(1, theta, grad_mag, 1);
+        return vec4f(1, grad_mag, theta, 1);
     }
 
     // return vec4f(0, 0.5 * cos(2 * theta), 0.5 * sin(2 * theta), grad_mag);
     // return vec4f(0, 0, 0, 0);
-    return vec4f(0, theta, grad_mag, 0.2);
+    return vec4f(0, grad_mag, theta, 0.2);
 
 
     // // if (grad_mag >= neighbor_a_mag && grad_mag >= neighbor_b_mag && grad_mag > 0.001) {

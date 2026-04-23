@@ -112,7 +112,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 fn choose_edge_neighbor(pix_value: vec4f) -> vec2i {
     let theta = pix_value.z;
     
-    let section = u32(abs(theta + (PI / 8.0)) / (2 * PI) * 8.0);
+    let section = u32((theta + (PI / 8.0) + (PI / 2.0)) / (2 * PI) * 8.0) % 8;
 
     // TODO: there must be a less horrible way of doing this
     switch section {
@@ -123,7 +123,7 @@ fn choose_edge_neighbor(pix_value: vec4f) -> vec2i {
             return vec2i(1, 1);
         }
         case 2: {
-            return vec2i(1, 0);
+            return vec2i(0, 1);
         }
         case 3: {
             return vec2i(-1, 1);
