@@ -70,16 +70,9 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let C = dot(gy, gy);
 
     let theta = 0.5 * atan2(2f * B, A - C);
-    let grad_dir = vec2f(cos(theta), sin(theta));  // TODO: is this needed?
 
     let grad_mag = sqrt(0.5 * ((A + C) + sqrt((A - C)*(A - C) + (4f * B * B))));
 
     // TODO: switch texture format to match the one used for gradient maximizing
     return vec4f(theta, grad_mag, 0, 0);
-
-    // TODO: below stuff is just for testing visualization
-    // let combined = vec3f(abs(gx.x * cos(theta)) + abs(gy.x * sin(theta)), gx.yz * abs(cos(theta)) + gy.yz * abs(sin(theta))); // shows the color gradient
-    // let combined = vec3f(grad_mag, grad_dir * 0.5 * grad_mag); // shows the direction of the gradient
-
-    // return vec4f(combined, 1);
 }
