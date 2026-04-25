@@ -47,14 +47,20 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     if (debug_uniforms.show_edge_pixels != 0u) {
         let pix = oklab;
         oklab = vec4f(pix.x, 0.5 * cos(pix.z * 2.0), 0.5 * sin(pix.z * 2.0), pix.w);
+
+        if (pix.w == 0f) {
+            oklab = vec4f(0, 0, 0, 0);
+        }
     }
 
     let linear = oklab_to_linear(oklab.rgb);
     let srgb = linear_to_srgb(linear);
 
     // return the resulting color
-    return vec4f(srgb, oklab.a);
+    return vec4f(srgb, oklab.w);
 }
+
+// TODO: shouldnt anything with L of 0 be black? it isnt
 
 //Convert linear RGB to sRGB
 fn linear_to_srgb(lin: vec3f) -> vec3f {

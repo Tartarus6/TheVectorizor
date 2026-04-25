@@ -16,7 +16,7 @@ const partial_sum_size: number = 8;
 
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
-// TODO: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
+// DONE: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
 // TODO: implement debug canvas view (showing the density scores texture)
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
 // TODO: prevent needing to do texture loads in mean shift cluster step. calculate and store color_dist_squared and image_dist_squared in update_density_scores.wgsl
@@ -34,11 +34,12 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) switch to including alpha in gradient math, rather than just Lab
 
 // GENERAL TODOS
-// TODO: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
-// TODO: deal with unused alpha. (need to figure what makes for a good function, and if alpha should be removed or not)
+// DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
+// TODO: deal with unused alpha in clustering. (need to figure what makes for a good function, and if alpha should be removed or not)
 // TODO: handling for transparent pixels: fully transparent pixels should be completely ignored (so the mean density score will have to divide by the number of non-transparent pixels rather than the width * height of the image)
 // TODO: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 // TODO: update the canvas view of the output each pass to show incremental work
+// TODO: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
 // TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
@@ -61,13 +62,15 @@ function compute_gaussian_kernel(radius: number): Float32Array {
 }
 
 export async function run_shader(
+	clusterCanvas: GPUCanvasContext,
+	edgeCanvas: GPUCanvasContext,
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
 	tile_size: number,
 	blur_radius: number,
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
-): Promise<[boolean, string, Uint8ClampedArray, Uint8ClampedArray]> {
+): Promise<[boolean, string]> {
 	console.log('starting mean shift cluster step WGPU');
 	const adapter = await navigator.gpu?.requestAdapter();
 	const device = await adapter?.requestDevice();
@@ -75,7 +78,7 @@ export async function run_shader(
 	if (!device) {
 		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
-		return [false, '', new Uint8ClampedArray(), new Uint8ClampedArray()];
+		return [false, ''];
 	}
 
 	// --- Pipelines ---
@@ -265,7 +268,12 @@ export async function run_shader(
 		label: 'input srgb texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST
 	});
 
 	const oklab_texture_ping = device.createTexture({
@@ -286,6 +294,7 @@ export async function run_shader(
 		format: 'rgba16float',
 		usage:
 			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
 			GPUTextureUsage.STORAGE_BINDING |
 			GPUTextureUsage.COPY_SRC |
 			GPUTextureUsage.COPY_DST
@@ -296,7 +305,11 @@ export async function run_shader(
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba8unorm',
 		usage:
-			GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC | GPUTextureUsage.TEXTURE_BINDING
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST
 	});
 
 	const gaussian_blur_intermediate_texture = device.createTexture({
@@ -433,7 +446,11 @@ export async function run_shader(
 	}
 
 	// --- OkLab to sRGB Pass ---
-	async function oklab_to_srgb_pass(texture: GPUTexture, show_edge_pixels = false) {
+	async function oklab_to_srgb_pass(
+		texture: GPUTexture,
+		show_edge_pixels: boolean,
+		context: GPUCanvasContext
+	) {
 		const oklab_to_srgb_module = device!.createShaderModule({
 			label: 'oklab to srgb module',
 			code: oklab_to_srgb_shader
@@ -445,6 +462,11 @@ export async function run_shader(
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 		});
 		device!.queue.writeBuffer(debug_uniforms_buffer, 0, debug_uniforms_data);
+
+		// const canvas_format = navigator.gpu.getPreferredCanvasFormat();
+		// const canvas_format: GPUTextureFormat = 'rgba8unorm';
+		const canvas_format: GPUTextureFormat = 'bgra8unorm';
+
 		const oklab_to_srgb_pipeline = device!.createRenderPipeline({
 			label: 'oklab to srgb render pipeline',
 			layout: 'auto',
@@ -457,7 +479,7 @@ export async function run_shader(
 				module: oklab_to_srgb_module,
 				targets: [
 					{
-						format: 'rgba8unorm'
+						format: canvas_format
 					}
 				]
 			}
@@ -472,18 +494,26 @@ export async function run_shader(
 			]
 		});
 
-		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
-		const pass = encoder.beginRenderPass({
+		context.configure({
+			device: device!,
+			format: canvas_format
+		});
+
+		const renderPassDescriptor: GPURenderPassDescriptor = {
 			label: 'oklab to srgb render pass',
 			colorAttachments: [
 				{
-					view: output_srgb_texture.createView(),
+					view: context.getCurrentTexture().createView(),
 					clearValue: [0, 0, 0, 0],
 					loadOp: 'clear',
 					storeOp: 'store'
 				}
 			]
-		});
+		};
+
+		const encoder = device!.createCommandEncoder({ label: 'oklab to srgb encoder' });
+
+		const pass = encoder.beginRenderPass(renderPassDescriptor);
 
 		pass.setPipeline(oklab_to_srgb_pipeline);
 		pass.setBindGroup(0, bind_group);
@@ -491,43 +521,6 @@ export async function run_shader(
 		pass.end();
 
 		device!.queue.submit([encoder.finish()]);
-	}
-
-	async function get_pixels(): Promise<Uint8ClampedArray> {
-		const bytes_per_row = Math.ceil((imageBitMap.width * 4) / 256) * 256;
-		const readback_buffer = device!.createBuffer({
-			label: 'pixel readback buffer',
-			size: bytes_per_row * imageBitMap.height,
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-		});
-
-		const encoder = device!.createCommandEncoder({ label: 'get pixels encoder' });
-		encoder.copyTextureToBuffer(
-			{ texture: output_srgb_texture },
-			{ buffer: readback_buffer, bytesPerRow: bytes_per_row },
-			{ width: imageBitMap.width, height: imageBitMap.height }
-		);
-
-		device!.queue.submit([encoder.finish()]);
-
-		await readback_buffer.mapAsync(GPUMapMode.READ);
-		const raw = new Uint8Array(readback_buffer.getMappedRange().slice());
-		readback_buffer.unmap();
-
-		// remove row padding introduced by WebGPU alignment requirements
-		const pixels = new Uint8ClampedArray(imageBitMap.width * imageBitMap.height * 4);
-		for (let y = 0; y < imageBitMap.height; y++) {
-			for (let x = 0; x < imageBitMap.width; x++) {
-				const src = y * bytes_per_row + x * 4;
-				const dst = y * imageBitMap.width * 4 + x * 4;
-				pixels[dst] = raw[src];
-				pixels[dst + 1] = raw[src + 1];
-				pixels[dst + 2] = raw[src + 2];
-				pixels[dst + 3] = raw[src + 3];
-			}
-		}
-
-		return pixels;
 	}
 
 	// --- Density Scores Pass ---
@@ -1111,11 +1104,13 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	oklab_to_srgb_pass(pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping);
-	let clustered_pixels = await get_pixels();
+	await oklab_to_srgb_pass(
+		pass_index % 2 === 0 ? oklab_texture_ping : oklab_texture_pong,
+		false,
+		clusterCanvas
+	);
 
-	oklab_to_srgb_pass(final_edge_texture, true);
-	let edge_pixels = await get_pixels();
+	await oklab_to_srgb_pass(final_edge_texture, true, edgeCanvas);
 
-	return [true, svg, clustered_pixels, edge_pixels];
+	return [true, svg];
 }

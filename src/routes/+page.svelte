@@ -21,7 +21,7 @@
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
-	let canvas_scale = $state(8);
+	let canvas_scale = $state(4);
 
 	const onFileSelected = (e: any) => {
 		const file = e.target.files[0];
@@ -140,15 +140,33 @@
 
 	<button
 		onmousedown={async () => {
+			if (!image_canvas || !clustered_canvas || !edge_canvas) {
+				return;
+			}
+
 			const res = await fetch(uploadedImageUrl as string);
 			image = await createImageBitmap(await res.blob());
 
-			image_canvas!.width = image.width;
-			image_canvas!.height = image.height;
-			image_canvas!.getContext('2d')!.drawImage(image, 0, 0);
+			image_canvas.width = image.width;
+			image_canvas.height = image.height;
+			image_canvas.getContext('2d')!.drawImage(image, 0, 0);
+
+			clustered_canvas.width = image.width;
+			clustered_canvas.height = image.height;
+			edge_canvas.width = image.width;
+			edge_canvas.height = image.height;
+
+			const clustered_ctx = clustered_canvas.getContext('webgpu');
+			const edge_ctx = edge_canvas.getContext('webgpu');
+			if (!clustered_ctx || !edge_ctx) {
+				alert('context didnt work');
+				return;
+			}
 
 			const startTime = performance.now();
-			const [success, svg, clustered_pixels, edge_pixels] = await run_shader(
+			const [success, svg] = await run_shader(
+				clustered_ctx,
+				edge_ctx,
 				image,
 				base_bandwidth,
 				tile_size,
@@ -160,28 +178,6 @@
 			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 			if (success) {
-				clustered_canvas!.width = image.width;
-				clustered_canvas!.height = image.height;
-				const clustered_safe_pixels = new Uint8ClampedArray(
-					new ArrayBuffer(clustered_pixels.length)
-				);
-				clustered_safe_pixels.set(clustered_pixels);
-
-				const clustered_ctx = clustered_canvas!.getContext('2d')!;
-				clustered_ctx.putImageData(
-					new ImageData(clustered_safe_pixels, image.width, image.height),
-					0,
-					0
-				);
-
-				edge_canvas!.width = image.width;
-				edge_canvas!.height = image.height;
-				const edge_safe_pixels = new Uint8ClampedArray(new ArrayBuffer(edge_pixels.length));
-				edge_safe_pixels.set(edge_pixels);
-
-				const edge_ctx = edge_canvas!.getContext('2d')!;
-				edge_ctx.putImageData(new ImageData(edge_safe_pixels, image.width, image.height), 0, 0);
-
 				if (svgUrl) {
 					URL.revokeObjectURL(svgUrl);
 				}
@@ -206,11 +202,12 @@
 		/>
 	{/if}
 </div>
-
 <div class="flex w-fit flex-col gap-2 bg-black">
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
-	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
-	<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
+	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated; background: transparent;"
+	></canvas>
+	<canvas bind:this={edge_canvas} style="image-rendering: pixelated; background: transparent;"
+	></canvas>
 	{#if svgUrl}
 		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="bg-white" />
 	{/if}

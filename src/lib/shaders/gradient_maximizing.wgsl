@@ -98,5 +98,5 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
         return vec4f(1, grad_mag, theta, 1);
     }
 
-    return vec4f(0, grad_mag, theta, 0.2);
+    return vec4f(0, grad_mag, theta, 1);
 }

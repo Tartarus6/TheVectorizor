@@ -54,7 +54,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     textureStore(output_tex, texel, in_pixel);
 
 
-    if (above_low_flag == 0 || edge_flag == 0) {
+    if (above_low_flag != 1f || edge_flag != 1f) {
         return;
     }
 
