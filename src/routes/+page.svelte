@@ -16,12 +16,12 @@
 	let tile_size = $state(512);
 	let num_cluster_passes = $state(5);
 	let num_edge_trace_passes = $state(0);
-	let blur_radius = $state(1);
+	let blur_radius = $state(2);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
-	let canvas_scale = $state(6);
+	let canvas_scale = $state(5);
 
 	const onFileSelected = (e: any) => {
 		const file = e.target.files[0];
@@ -134,8 +134,18 @@
 	</div>
 
 	<div class="m-2 flex flex-col bg-slate-500 p-2">
-		<span>Edge Trace Passes: {num_edge_trace_passes}</span>
-		<input type="range" bind:value={num_edge_trace_passes} min={0} max={500} />
+		<div class="flex flex-row gap-2">
+			<span>Edge Tracing Passes:</span>
+			<input
+				type="number"
+				bind:value={num_edge_trace_passes}
+				min={0}
+				max={500}
+				step={1}
+				class="border-2 border-white"
+			/>
+		</div>
+		<input type="range" bind:value={num_edge_trace_passes} min={0} max={500} step={1} />
 	</div>
 
 	<button

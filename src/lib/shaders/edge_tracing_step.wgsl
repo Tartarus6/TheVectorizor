@@ -29,7 +29,7 @@ output_tex:
 
 
 const PI = 3.1415926535;
-
+const CANDIDATES_SIZE: u32 = 3u;
 
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
@@ -58,17 +58,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-
-    let right = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(1, 0), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-    let left = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(-1, 0), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-    let down = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(0, 1), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-    let up = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(0, -1), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-
-    let down_right = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(1, 1), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-    let up_left = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(-1, -1), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-    let up_right = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(1, -1), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-    let down_left = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(-1, 1), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-
     let section = u32((theta + (PI / 4.0) + (PI / 2.0)) / (2 * PI) * 4.0) % 4;
 
     let dirs = array<vec2i, 4>(
@@ -81,125 +70,37 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let dir = dirs[section];
     let perp = vec2i(-dir.y, dir.x);
 
-    var candidates = array<vec2i, 3>(
+    // ?NOTE: the error below is untrue, CANDIDATES_SIZE does properly work to define the array
+    var candidates = array<vec2i, CANDIDATES_SIZE>(
         dir + perp,
         dir,
         dir - perp,
     );
 
-    var best_pix = vec4f(0.0);  // default, should be overwritten
-    var best_pos = vec2u(0, 0); // default, should be overwritten
+    // check for followup edge pixel along theta forwards and also backwards
+    for (var flip_mult = -1; flip_mult <= 1; flip_mult += 2) {
+        var best_pix = vec4f(-1);  // default, should be overwritten
+        var best_pos = vec2u(0);   // default, should be overwritten
 
-    for (var i = 0u; i < 3u; i = i + 1u) {
-        let pos = vec2u(clamp(vec2i(texel) + candidates[i], vec2i(0), vec2i(dims) - vec2i(1)));
-        let cand_pix = textureLoad(input_tex, pos, 0);
-        
-        // if candidate is already part of an edge, just pick that one immediately
-        if (cand_pix.x != 0) {
-            best_pix = cand_pix;
-            best_pos = pos;
-            break;
+        for (var i = 0u; i < CANDIDATES_SIZE; i = i + 1u) {
+            let pos = vec2u(clamp(vec2i(texel) + (flip_mult * candidates[i]), vec2i(0), vec2i(dims) - vec2i(1)));
+            let cand_pix = textureLoad(input_tex, pos, 0);
+            
+            // if candidate is already part of an edge, just pick that one immediately
+            if (cand_pix.x != 0) {
+                best_pix = cand_pix;
+                best_pos = pos;
+                break;
+            }
+
+            // if candidate is new best, update best
+            if (cand_pix.y > best_pix.y) {
+                best_pix = cand_pix;
+                best_pos = pos;
+            }
         }
 
-        // if candidate is new best, update best
-        if (cand_pix.y > best_pix.y) {
-            best_pix = cand_pix;
-            best_pos = pos;
-        }
+        // write best candidate as an edge
+        textureStore(output_tex, best_pos, vec4f(1, best_pix.yz, 1));
     }
-    textureStore(output_tex, best_pos, vec4f(1, best_pix.yz, 1));
-
-    best_pix = vec4f(0.0);  // default, should be overwritten
-    best_pos = vec2u(0, 0); // default, should be overwritten
-
-    // TODO: replace for loop below to use arrayLength(candidates) or somethign else to remove the hardcoded loop count
-    for (var i = 0u; i < 3; i = i + 1u) {
-        let pos = vec2u(clamp(vec2i(texel) - candidates[i], vec2i(0), vec2i(dims) - vec2i(1)));
-        let cand_pix = textureLoad(input_tex, pos, 0);
-
-        // if candidate is already part of an edge, just pick that one immediately
-        if (cand_pix.x != 0) {
-            best_pix = cand_pix;
-            best_pos = pos;
-            break;
-        }
-
-        // if candidate is new best, update best
-        if (cand_pix.y > best_pix.y) {
-            best_pix = cand_pix;
-            best_pos = pos;
-        }
-    }
-    textureStore(output_tex, best_pos, vec4f(1, best_pix.yz, 1));
-
-
-    // for (var dx = -1; dx<=1; dx++) {
-    //     for (var dy = -1; dy<=1; dy++) {
-    //         // dont compare pixel with itsself
-    //         if (dx == 0 && dy == 0) { continue; }
-
-    //         let neighbor = textureLoad(input_tex, clamp(vec2i(texel) + vec2i(dx, dy), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-
-    //         // skip neighbor if it's not an edge
-    //         if (neighbor.x != 1) { continue; }
-
-    //         let offset = choose_edge_neighbor(neighbor);
-
-    //         if ((offset.x == dx && offset.y == dy) || (offset.x == -dx && offset.y == -dy)) {
-    //             out_pixel = vec4f(1, out_pixel.yz, 1);
-    //             textureStore(output_tex, vec2i(texel), out_pixel);
-    //             return;
-    //         }
-
-    //     }
-    // }
-
-
-
 }
-
-/*
-    pix_value:
-        x -> edge flag
-        y -> grad_mag
-        z -> theta
-        a -> 1
-
-    This function takes in the value of a pixel, and returns the offset of the edge it correlates to
-*/
-// fn choose_edge_neighbor(pix_value: vec4f) -> vec2i {
-//     let theta = pix_value.z;
-
-//     let section = u32((theta + (PI / 8.0) + (PI / 2.0)) / (2 * PI) * 8.0) % 8;
-
-//     // TODO: there must be a less horrible way of doing this
-//     switch section {
-//         case 0, 8: {
-//             return vec2i(1, 0);
-//         }
-//         case 1: {
-//             return vec2i(1, 1);
-//         }
-//         case 2: {
-//             return vec2i(0, 1);
-//         }
-//         case 3: {
-//             return vec2i(-1, 1);
-//         }
-//         case 4: {
-//             return vec2i(-1, 0);
-//         }
-//         case 5: {
-//             return vec2i(-1, -1);
-//         }
-//         case 6: {
-//             return vec2i(0, -1);
-//         }
-//         case 7: {
-//             return vec2i(1, -1);
-//         }
-//         default: {
-//             return vec2i(0, 0);
-//         }
-//     }
-// }

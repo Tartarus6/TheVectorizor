@@ -247,7 +247,7 @@ export async function run_shader(
 		pass.end();
 
 		device!.queue.submit([encoder.finish()]);
-		await device!.queue.onSubmittedWorkDone();
+		// await device!.queue.onSubmittedWorkDone();
 	}
 
 	// --- OkLab to sRGB Pass ---
@@ -419,8 +419,8 @@ export async function run_shader(
 				device!.queue.submit([encoder.finish()]);
 
 				// cooperative pacing: prevents long uninterrupted GPU queue bursts
-				await device!.queue.onSubmittedWorkDone();
-				await new Promise((r) => setTimeout(r, 0));
+				// await device!.queue.onSubmittedWorkDone();
+				// await new Promise((r) => setTimeout(r, 0));
 			}
 		}
 	}
@@ -637,8 +637,8 @@ export async function run_shader(
 				device!.queue.submit([encoder.finish()]);
 
 				// cooperative pacing: prevents long uninterrupted GPU queue bursts
-				await device!.queue.onSubmittedWorkDone();
-				await new Promise((r) => setTimeout(r, 0));
+				// await device!.queue.onSubmittedWorkDone();
+				// await new Promise((r) => setTimeout(r, 0));
 			}
 		}
 	}
@@ -741,7 +741,7 @@ export async function run_shader(
 		h_pass.draw(3);
 		h_pass.end();
 		device!.queue.submit([h_encoder.finish()]);
-		await device!.queue.onSubmittedWorkDone();
+		// await device!.queue.onSubmittedWorkDone();
 
 		const v_encoder = device!.createCommandEncoder({ label: 'gaussian blur vertical encoder' });
 		const v_pass = v_encoder.beginRenderPass({
@@ -760,7 +760,7 @@ export async function run_shader(
 		v_pass.draw(3);
 		v_pass.end();
 		device!.queue.submit([v_encoder.finish()]);
-		await device!.queue.onSubmittedWorkDone();
+		// await device!.queue.onSubmittedWorkDone();
 	}
 
 	// --- Gradient Pass ---
@@ -814,7 +814,7 @@ export async function run_shader(
 		pass.end();
 
 		device!.queue.submit([encoder.finish()]);
-		await device!.queue.onSubmittedWorkDone();
+		// await device!.queue.onSubmittedWorkDone();
 	}
 
 	// --- Gradient Maximizing Pass ---
@@ -871,7 +871,7 @@ export async function run_shader(
 		pass.end();
 
 		device!.queue.submit([encoder.finish()]);
-		await device!.queue.onSubmittedWorkDone();
+		// await device!.queue.onSubmittedWorkDone();
 	}
 
 	// --- Edge Trace Path ---
