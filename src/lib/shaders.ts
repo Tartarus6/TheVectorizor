@@ -81,188 +81,6 @@ export async function run_shader(
 		return [false, ''];
 	}
 
-	// --- Pipelines ---
-	const update_density_scores_pipeline = device.createComputePipeline({
-		label: 'update density scores compute pipeline',
-		layout: 'auto',
-		compute: {
-			module: device.createShaderModule({
-				label: 'update density scores module',
-				code: update_density_scores_shader
-			}),
-			entryPoint: 'cs_main'
-		}
-	});
-
-	const gaussian_blur_module = device.createShaderModule({
-		label: 'gaussian blur module',
-		code: gaussian_blur_shader
-	});
-
-	const gaussian_blur_h_pipeline = device.createRenderPipeline({
-		label: 'gaussian blur horizontal pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gaussian_blur_module
-		},
-		fragment: {
-			entryPoint: 'blur_horizontal',
-			module: gaussian_blur_module,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-
-	const gaussian_blur_v_pipeline = device.createRenderPipeline({
-		label: 'gaussian blur vertical pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gaussian_blur_module
-		},
-		fragment: {
-			entryPoint: 'blur_vertical',
-			module: gaussian_blur_module,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-
-	const gaussian_gradient_module = device.createShaderModule({
-		label: 'gaussian gradient module',
-		code: gaussian_gradient_shader
-	});
-
-	const gaussian_grad_pipeline = device.createRenderPipeline({
-		label: 'difference of gaussian pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gaussian_gradient_module
-		},
-		fragment: {
-			entryPoint: 'cs_main',
-			module: gaussian_gradient_module,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-
-	const gradient_max_module = device.createShaderModule({
-		label: 'gradient max module',
-		code: gradient_max_shader
-	});
-
-	const grad_max_pipeline = device.createRenderPipeline({
-		label: 'gradient max pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gradient_max_module
-		},
-		fragment: {
-			entryPoint: 'cs_main',
-			module: gradient_max_module,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-
-	const edge_trace_module = device.createShaderModule({
-		label: 'edge tracing module',
-		code: edge_tracing_step_shader
-	});
-
-	const edge_trace_pipeline = device.createComputePipeline({
-		label: 'edge tracing compute pipeline',
-		layout: 'auto',
-		compute: {
-			module: edge_trace_module,
-			entryPoint: 'cs_main'
-		}
-	});
-
-	const mean_density_score_pipeline = device.createComputePipeline({
-		label: 'mean density score compute pipeline',
-		layout: 'auto',
-		compute: {
-			module: device.createShaderModule({
-				label: 'mean density score module',
-				code: calculate_mean_step_shader
-			}),
-			entryPoint: 'cs_main'
-		}
-	});
-
-	const mean_shift_cluster_pipeline = device.createComputePipeline({
-		label: 'mean shift cluster compute pipeline',
-		layout: 'auto',
-		compute: {
-			module: device.createShaderModule({
-				label: 'mean shift cluster module',
-				code: mean_shift_cluster_step_shader
-			}),
-			entryPoint: 'cs_main'
-		}
-	});
-
-	const srgb_to_oklab_module = device.createShaderModule({
-		label: 'srgb to oklab module',
-		code: srgb_to_oklab_shader
-	});
-	const srgb_to_oklab_pipeline = device.createRenderPipeline({
-		label: 'srgb to oklab render pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: srgb_to_oklab_module
-		},
-		fragment: {
-			entryPoint: 'fs_main',
-			module: srgb_to_oklab_module,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-
-	const oklab_to_srgb_module = device.createShaderModule({
-		label: 'oklab to srgb module',
-		code: oklab_to_srgb_shader
-	});
-	const oklab_to_srgb_pipeline = device.createRenderPipeline({
-		label: 'oklab to srgb render pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: oklab_to_srgb_module
-		},
-		fragment: {
-			entryPoint: 'fs_main',
-			module: oklab_to_srgb_module,
-			targets: [
-				{
-					format: 'rgba8unorm'
-				}
-			]
-		}
-	});
-
 	// --- Shared Textures ---
 	const input_srgb_texture = device.createTexture({
 		label: 'input srgb texture',
@@ -292,18 +110,6 @@ export async function run_shader(
 		label: 'output oklab texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
-		usage:
-			GPUTextureUsage.TEXTURE_BINDING |
-			GPUTextureUsage.RENDER_ATTACHMENT |
-			GPUTextureUsage.STORAGE_BINDING |
-			GPUTextureUsage.COPY_SRC |
-			GPUTextureUsage.COPY_DST
-	});
-
-	const output_srgb_texture = device.createTexture({
-		label: 'output srgb texture',
-		size: [imageBitMap.width, imageBitMap.height],
-		format: 'rgba8unorm',
 		usage:
 			GPUTextureUsage.TEXTURE_BINDING |
 			GPUTextureUsage.RENDER_ATTACHMENT |
@@ -388,29 +194,28 @@ export async function run_shader(
 	});
 
 	// --- sRGB to OkLab Pass ---
+	const srgb_to_oklab_module = device!.createShaderModule({
+		label: 'srgb to oklab module',
+		code: srgb_to_oklab_shader
+	});
+	const srgb_to_oklab_pipeline = device!.createRenderPipeline({
+		label: 'srgb to oklab render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: srgb_to_oklab_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: srgb_to_oklab_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
 	async function srgb_to_oklab_pass() {
-		const srgb_to_oklab_module = device!.createShaderModule({
-			label: 'srgb to oklab module',
-			code: srgb_to_oklab_shader
-		});
-		const srgb_to_oklab_pipeline = device!.createRenderPipeline({
-			label: 'srgb to oklab render pipeline',
-			layout: 'auto',
-			vertex: {
-				entryPoint: 'vs_main',
-				module: srgb_to_oklab_module
-			},
-			fragment: {
-				entryPoint: 'fs_main',
-				module: srgb_to_oklab_module,
-				targets: [
-					{
-						format: 'rgba16float'
-					}
-				]
-			}
-		});
-
 		device!.queue.copyExternalImageToTexture(
 			{ source: imageBitMap },
 			{ texture: input_srgb_texture },
@@ -446,15 +251,35 @@ export async function run_shader(
 	}
 
 	// --- OkLab to sRGB Pass ---
+	// const canvas_format = navigator.gpu.getPreferredCanvasFormat();
+	const canvas_format: GPUTextureFormat = 'rgba8unorm';
+
+	const oklab_to_srgb_module = device!.createShaderModule({
+		label: 'oklab to srgb module',
+		code: oklab_to_srgb_shader
+	});
+	const oklab_to_srgb_pipeline = device!.createRenderPipeline({
+		label: 'oklab to srgb render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: oklab_to_srgb_module
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: oklab_to_srgb_module,
+			targets: [
+				{
+					format: canvas_format
+				}
+			]
+		}
+	});
 	async function oklab_to_srgb_pass(
 		texture: GPUTexture,
 		show_edge_pixels: boolean,
 		context: GPUCanvasContext
 	) {
-		const oklab_to_srgb_module = device!.createShaderModule({
-			label: 'oklab to srgb module',
-			code: oklab_to_srgb_shader
-		});
 		const debug_uniforms_data = new Uint32Array([show_edge_pixels ? 1 : 0]);
 		const debug_uniforms_buffer = device!.createBuffer({
 			label: 'oklab to srgb debug uniforms buffer',
@@ -462,28 +287,6 @@ export async function run_shader(
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 		});
 		device!.queue.writeBuffer(debug_uniforms_buffer, 0, debug_uniforms_data);
-
-		// const canvas_format = navigator.gpu.getPreferredCanvasFormat();
-		// const canvas_format: GPUTextureFormat = 'rgba8unorm';
-		const canvas_format: GPUTextureFormat = 'bgra8unorm';
-
-		const oklab_to_srgb_pipeline = device!.createRenderPipeline({
-			label: 'oklab to srgb render pipeline',
-			layout: 'auto',
-			vertex: {
-				entryPoint: 'vs_main',
-				module: oklab_to_srgb_module
-			},
-			fragment: {
-				entryPoint: 'fs_main',
-				module: oklab_to_srgb_module,
-				targets: [
-					{
-						format: canvas_format
-					}
-				]
-			}
-		});
 
 		const bind_group = device!.createBindGroup({
 			label: 'oklab to srgb ping bind group',
@@ -524,6 +327,18 @@ export async function run_shader(
 	}
 
 	// --- Density Scores Pass ---
+	const update_density_scores_pipeline = device.createComputePipeline({
+		label: 'update density scores compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'update density scores module',
+				code: update_density_scores_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
+
 	const in_partial_sums_buffer = device!.createBuffer({
 		label: 'mean density partial sums buffer',
 		size: density_scores_buffer.size, // same size as density scores buffer
@@ -536,18 +351,6 @@ export async function run_shader(
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 	async function density_scores_pass(texture: GPUTexture) {
-		const update_density_scores_pipeline = device!.createComputePipeline({
-			label: 'update density scores compute pipeline',
-			layout: 'auto',
-			compute: {
-				module: device!.createShaderModule({
-					label: 'update density scores module',
-					code: update_density_scores_shader
-				}),
-				entryPoint: 'cs_main'
-			}
-		});
-
 		/*
 		struct Uniforms {
 			base_bandwidth: f32,
@@ -623,19 +426,18 @@ export async function run_shader(
 	}
 
 	// --- Mean Density Score Steps Pass ---
+	const mean_density_score_pipeline = device.createComputePipeline({
+		label: 'mean density score compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean density score module',
+				code: calculate_mean_step_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
 	async function get_mean_density_score(): Promise<number> {
-		const mean_density_score_pipeline = device!.createComputePipeline({
-			label: 'mean density score compute pipeline',
-			layout: 'auto',
-			compute: {
-				module: device!.createShaderModule({
-					label: 'mean density score module',
-					code: calculate_mean_step_shader
-				}),
-				entryPoint: 'cs_main'
-			}
-		});
-
 		/*
 		struct Uniforms {
 		    partial_sum_size: u32,         /// each thread will be in charge of summing this many elements
@@ -749,22 +551,22 @@ export async function run_shader(
 	}
 
 	// --- Mean Shift Cluster Pass ---
+	const mean_shift_cluster_pipeline = device.createComputePipeline({
+		label: 'mean shift cluster compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: device.createShaderModule({
+				label: 'mean shift cluster module',
+				code: mean_shift_cluster_step_shader
+			}),
+			entryPoint: 'cs_main'
+		}
+	});
 	async function mean_shift_cluster_pass(
 		mean_density_score: number,
 		texture_in: GPUTexture,
 		texture_out: GPUTexture
 	): Promise<void> {
-		const mean_shift_cluster_pipeline = device!.createComputePipeline({
-			label: 'mean shift cluster compute pipeline',
-			layout: 'auto',
-			compute: {
-				module: device!.createShaderModule({
-					label: 'mean shift cluster module',
-					code: mean_shift_cluster_step_shader
-				}),
-				entryPoint: 'cs_main'
-			}
-		});
 		/*
 		struct FloatUniforms {
 			base_bandwidth: f32,
@@ -840,6 +642,46 @@ export async function run_shader(
 			}
 		}
 	}
+
+	// --- Gaussian Blur Pass ---
+	const gaussian_blur_module = device.createShaderModule({
+		label: 'gaussian blur module',
+		code: gaussian_blur_shader
+	});
+	const gaussian_blur_h_pipeline = device.createRenderPipeline({
+		label: 'gaussian blur horizontal pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: gaussian_blur_module
+		},
+		fragment: {
+			entryPoint: 'blur_horizontal',
+			module: gaussian_blur_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
+	const gaussian_blur_v_pipeline = device.createRenderPipeline({
+		label: 'gaussian blur vertical pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: gaussian_blur_module
+		},
+		fragment: {
+			entryPoint: 'blur_vertical',
+			module: gaussian_blur_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
 
 	async function gaussian_blur_pass(
 		radius: number,
@@ -921,6 +763,29 @@ export async function run_shader(
 		await device!.queue.onSubmittedWorkDone();
 	}
 
+	// --- Gradient Pass ---
+	const gaussian_gradient_module = device.createShaderModule({
+		label: 'gaussian gradient module',
+		code: gaussian_gradient_shader
+	});
+	const gaussian_grad_pipeline = device.createRenderPipeline({
+		label: 'difference of gaussian pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: gaussian_gradient_module
+		},
+		fragment: {
+			entryPoint: 'cs_main',
+			module: gaussian_gradient_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
+
 	async function gaussian_gradient_pass(
 		in_texture: GPUTexture,
 		out_texture: GPUTexture
@@ -951,6 +816,30 @@ export async function run_shader(
 		device!.queue.submit([encoder.finish()]);
 		await device!.queue.onSubmittedWorkDone();
 	}
+
+	// --- Gradient Maximizing Pass ---
+	const gradient_max_module = device.createShaderModule({
+		label: 'gradient max module',
+		code: gradient_max_shader
+	});
+
+	const grad_max_pipeline = device.createRenderPipeline({
+		label: 'gradient max pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: gradient_max_module
+		},
+		fragment: {
+			entryPoint: 'cs_main',
+			module: gradient_max_module,
+			targets: [
+				{
+					format: 'rgba16float'
+				}
+			]
+		}
+	});
 
 	async function gradient_max_pass(
 		in_gradient_texture: GPUTexture,
@@ -985,6 +874,20 @@ export async function run_shader(
 		device!.queue.submit([encoder.finish()]);
 		await device!.queue.onSubmittedWorkDone();
 	}
+
+	// --- Edge Trace Path ---
+	const edge_trace_module = device.createShaderModule({
+		label: 'edge tracing module',
+		code: edge_tracing_step_shader
+	});
+	const edge_trace_pipeline = device.createComputePipeline({
+		label: 'edge tracing compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: edge_trace_module,
+			entryPoint: 'cs_main'
+		}
+	});
 
 	async function edge_trace_pass(
 		in_edge_texture: GPUTexture,
