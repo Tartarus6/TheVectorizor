@@ -822,7 +822,6 @@ export async function run_shader(
 		label: 'gradient max module',
 		code: gradient_max_shader
 	});
-
 	const grad_max_pipeline = device.createRenderPipeline({
 		label: 'gradient max pipeline',
 		layout: 'auto',

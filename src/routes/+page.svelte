@@ -15,7 +15,7 @@
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
 	let tile_size = $state(512);
 	let num_cluster_passes = $state(5);
-	let num_edge_trace_passes = $state(50);
+	let num_edge_trace_passes = $state(0);
 	let blur_radius = $state(1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();

@@ -77,16 +77,6 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let grad_mag = grad_pixel.y;
 
     // TODO: is there a way to cast the pixels as some struct, so that it's extra obvious that what the xyzw values are?
-    let right = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(1, 0), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-    let left = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(-1, 0), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-    let down = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(0, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-    let up = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(0, -1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-
-    let down_right = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(1, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-    let up_left = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(-1, -1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-    let up_right = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(1, -1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-    let down_left = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(-1, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
-
 
     // TODO: refine the node position to have the maximum not just be the center of the pixel (check neighbors to find actual maximum)
 
@@ -94,7 +84,20 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
         return vec4f(0, 0, 0, 0);
     }
 
-    if (grad_mag > right.y && grad_mag > left.y && grad_mag > down.y && grad_mag > up.y && grad_mag > down_right.y && grad_mag > up_left.y && grad_mag > up_right.y && grad_mag > down_left.y) {
+    var greatest = true; // store whether neighbor of greater magnitude has been found (set to false if neighbor is found)
+    for (var dx = -1; dx <= 1; dx ++) {
+        for (var dy = -1; dy <= 1; dy ++) {
+            if (dx == 0 && dy == 0) { continue; }
+
+            let neighbor = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(dx, dy), vec2i(0), vec2i(dims) - vec2i(1)), 0);
+
+            if (grad_mag <= neighbor.y) {
+                greatest = false;
+            }
+        }
+    }
+
+    if (greatest) {
         return vec4f(1, grad_mag, theta, 1);
     }
 
