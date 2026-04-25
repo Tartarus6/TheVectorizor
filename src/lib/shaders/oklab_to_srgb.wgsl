@@ -26,7 +26,11 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 }
 
 @group(0) @binding(0) var oklab_texture: texture_2d<f32>;
-@group(0) @binding(1) var<storage,read_write> srgb_texture: array<f32>;
+struct DebugUniforms {
+    show_edge_pixels: u32,
+};
+
+@group(0) @binding(1) var<uniform> debug_uniforms: DebugUniforms;
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4f {
@@ -39,16 +43,24 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
         min(u32(uv.x * f32(dims.x)), dims.x - 1u),
         min(u32(uv.y * f32(dims.y)), dims.y - 1u)
     );
-    let oklab = textureLoad(oklab_texture, texel, 0);
+    var oklab = textureLoad(oklab_texture, texel, 0);
+    if (debug_uniforms.show_edge_pixels != 0u) {
+        let pix = oklab;
+        oklab = vec4f(pix.x, 0.5 * cos(pix.z * 2.0), 0.5 * sin(pix.z * 2.0), pix.w);
 
-    // TODO: turn oklab to srgb
+        if (pix.w == 0f) {
+            oklab = vec4f(0, 0, 0, 0);
+        }
+    }
+
     let linear = oklab_to_linear(oklab.rgb);
-    
     let srgb = linear_to_srgb(linear);
 
     // return the resulting color
-    return vec4f(srgb, oklab.a);
+    return vec4f(srgb, oklab.w);
 }
+
+// TODO: shouldnt anything with L of 0 be black? it isnt
 
 //Convert linear RGB to sRGB
 fn linear_to_srgb(lin: vec3f) -> vec3f {
