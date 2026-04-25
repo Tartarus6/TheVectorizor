@@ -350,6 +350,12 @@ export async function run_shader(
 		size: density_scores_buffer.size, // same size as density scores buffer
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
+
+	const mean_density_score_buffer = device!.createBuffer({
+		label: 'mean density score buffer',
+		size: Float32Array.BYTES_PER_ELEMENT,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+	});
 	async function density_scores_pass(texture: GPUTexture) {
 		/*
 		struct Uniforms {
@@ -437,7 +443,7 @@ export async function run_shader(
 			entryPoint: 'cs_main'
 		}
 	});
-	async function get_mean_density_score(): Promise<number> {
+	async function get_mean_density_score(): Promise<GPUBuffer> {
 		/*
 		struct Uniforms {
 		    partial_sum_size: u32,         /// each thread will be in charge of summing this many elements
@@ -450,13 +456,6 @@ export async function run_shader(
 			label: 'mean density uniforms buffer',
 			size: uniforms_data.byteLength,
 			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		});
-
-		// this buffer is not used by the shader directly. when the shader finishes, its output is copied into this buffer so that it can be better used
-		const readback_buffer = device!.createBuffer({
-			label: 'mean density readback buffer',
-			size: Float32Array.BYTES_PER_ELEMENT, // size of 1 element
-			usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
 		});
 
 		// Setup a bindGroup to tell the shader which
@@ -525,29 +524,20 @@ export async function run_shader(
 			num_remaining_elements = next_num_remaining_elements;
 		}
 
-		// Finish encoding and submit the commands
-		const readback_encoder = device!.createCommandEncoder({
-			label: 'mean density readback encoder'
+		// copy reduced result (sum of all density scores) into a dedicated 1-float buffer
+		const output_encoder = device!.createCommandEncoder({
+			label: 'mean density output encoder'
 		});
-		readback_encoder.copyBufferToBuffer(
+		output_encoder.copyBufferToBuffer(
 			out_partial_sums_buffer,
 			0,
-			readback_buffer,
+			mean_density_score_buffer,
 			0,
 			Float32Array.BYTES_PER_ELEMENT
 		);
-		device!.queue.submit([readback_encoder.finish()]);
+		device!.queue.submit([output_encoder.finish()]);
 
-		await readback_buffer.mapAsync(GPUMapMode.READ);
-		const result = new Float32Array(readback_buffer.getMappedRange().slice());
-
-		const mean_density_score = result[0] / (imageBitMap.width * imageBitMap.height);
-
-		readback_buffer.unmap();
-
-		console.log('Mean Density Score:', mean_density_score);
-
-		return mean_density_score;
+		return mean_density_score_buffer;
 	}
 
 	// --- Mean Shift Cluster Pass ---
@@ -563,17 +553,16 @@ export async function run_shader(
 		}
 	});
 	async function mean_shift_cluster_pass(
-		mean_density_score: number,
+		mean_density_score_buffer: GPUBuffer,
 		texture_in: GPUTexture,
 		texture_out: GPUTexture
 	): Promise<void> {
 		/*
 		struct FloatUniforms {
 			base_bandwidth: f32,
-			mean_density_score: f32,
 		}
 		*/
-		const float_uniforms_data = new Float32Array([base_bandwidth, mean_density_score]);
+		const float_uniforms_data = new Float32Array([base_bandwidth]);
 		/*
 		struct UintUniforms {
 			tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
@@ -602,10 +591,11 @@ export async function run_shader(
 			layout: mean_shift_cluster_pipeline.getBindGroupLayout(0),
 			entries: [
 				{ binding: 0, resource: float_uniforms_buffer },
-				{ binding: 1, resource: uint_uniforms_buffer },
-				{ binding: 2, resource: texture_in.createView() },
-				{ binding: 3, resource: density_scores_buffer },
-				{ binding: 4, resource: texture_out.createView() }
+				{ binding: 1, resource: mean_density_score_buffer },
+				{ binding: 2, resource: uint_uniforms_buffer },
+				{ binding: 3, resource: texture_in.createView() },
+				{ binding: 4, resource: density_scores_buffer },
+				{ binding: 5, resource: texture_out.createView() }
 			]
 		});
 
@@ -932,9 +922,9 @@ export async function run_shader(
 		console.log('Pass:', pass_index);
 		await density_scores_pass(pass_index % 2 == 0 ? oklab_texture_ping : oklab_texture_pong);
 
-		const mean_density_score = await get_mean_density_score();
+		const mean_density_score_buffer = await get_mean_density_score();
 		await mean_shift_cluster_pass(
-			mean_density_score,
+			mean_density_score_buffer,
 			pass_index % 2 == 0 ? oklab_texture_ping : oklab_texture_pong,
 			pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping
 		);
