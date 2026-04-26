@@ -41,7 +41,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let edge_flag = in_pixel.x;
     let grad_mag = in_pixel.y;
     let theta = in_pixel.z;
-    let subpixel_offset = in_pixel.w;
 
     // TODO: might be able to save these texture stores with some initial copying or something
     textureStore(output_tex, texel, in_pixel);
@@ -95,7 +94,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         }
 
         // write best candidate as an edge
-        textureStore(output_tex, best_pos, vec4f(1, best_pix.yz, 1));
+        textureStore(output_tex, best_pos, vec4f(1, best_pix.yzw));
     }
 }
 

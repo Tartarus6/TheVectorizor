@@ -915,18 +915,25 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	startTime = performance.now();
+	console.log();
+	console.log('Pre-cluster Blur:');
+	await gaussian_blur_pass(blur_radius, oklab_texture_ping, oklab_texture_pong);
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
 	for (var pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
 		startTime = performance.now();
 
 		console.log();
 		console.log('Pass:', pass_index);
-		await density_scores_pass(pass_index % 2 == 0 ? oklab_texture_ping : oklab_texture_pong);
+		await density_scores_pass((pass_index + 1) % 2 == 1 ? oklab_texture_pong : oklab_texture_ping);
 
 		const mean_density_score_buffer = await get_mean_density_score();
 		await mean_shift_cluster_pass(
 			mean_density_score_buffer,
-			pass_index % 2 == 0 ? oklab_texture_ping : oklab_texture_pong,
-			pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping
+			(pass_index + 1) % 2 == 1 ? oklab_texture_pong : oklab_texture_ping,
+			(pass_index + 1) % 2 == 1 ? oklab_texture_ping : oklab_texture_pong
 		);
 
 		endTime = performance.now();
@@ -935,19 +942,11 @@ export async function run_shader(
 
 	startTime = performance.now();
 	console.log();
-	console.log('Blur:');
-	await gaussian_blur_pass(
-		blur_radius,
-		pass_index % 2 == 0 ? oklab_texture_pong : oklab_texture_ping,
-		gaussian_blur_texture
-	);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
-
-	startTime = performance.now();
-	console.log();
 	console.log('GaussGradient:');
-	await gaussian_gradient_pass(gaussian_blur_texture, gaussian_gradient_output_texture);
+	await gaussian_gradient_pass(
+		pass_index % 2 === 1 ? oklab_texture_ping : oklab_texture_pong,
+		gaussian_gradient_output_texture
+	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
@@ -997,7 +996,7 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	await oklab_to_srgb_pass(
-		pass_index % 2 === 0 ? oklab_texture_ping : oklab_texture_pong,
+		pass_index % 2 === 1 ? oklab_texture_ping : oklab_texture_pong,
 		false,
 		clusterCanvas
 	);

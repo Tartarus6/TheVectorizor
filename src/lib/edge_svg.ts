@@ -3,10 +3,10 @@
  ? The final code will probably be written for WASM so that it can be a lot faster.
  * What this file does is take in a specially formatted texture, and turn it into an SVG.
  * Format:
-    r -> edge flag
+    r -> edge_flag
     g -> grad_mag
     b -> theta
-    a -> 1
+    a -> subpixel_offset
 */
 
 type EdgePoint = {
@@ -93,6 +93,7 @@ function edgeTextureToPaths(data: Float32Array, width: number, height: number): 
 	const edgeMask = new Uint8Array(pixelCount);
 	const thetaValues = new Float32Array(pixelCount);
 	const degreeValues = new Uint8Array(pixelCount);
+	const subpixelOffsetValues = new Float32Array(pixelCount);
 
 	for (let index = 0; index < pixelCount; index += 1) {
 		const base = index * 4;
@@ -102,6 +103,7 @@ function edgeTextureToPaths(data: Float32Array, width: number, height: number): 
 		if (edgeFlag > 0.5) {
 			edgeMask[index] = 1;
 			thetaValues[index] = data[base + 2];
+			subpixelOffsetValues[index] = data[base + 3];
 		}
 	}
 
@@ -129,6 +131,7 @@ function edgeTextureToPaths(data: Float32Array, width: number, height: number): 
 				height,
 				edgeMask,
 				thetaValues,
+				subpixelOffsetValues,
 				visitedEdges
 			);
 			if (path.points.length >= 2) {
@@ -173,6 +176,7 @@ function pathsToSvg(paths: EdgePath[], width: number, height: number): string {
 			const d = `${commands.join(' ')}${path.closed ? ' Z' : ''}`;
 			// random stroke color
 			return `<path stroke="#${Math.floor(Math.random() * 16777215).toString(16)}" d="${d}" />`;
+			// return `<path stroke="black" d="${d}" />`;
 		})
 		.filter(Boolean)
 		.join('');
@@ -187,9 +191,13 @@ function tracePath(
 	height: number,
 	edgeMask: Uint8Array,
 	thetaValues: Float32Array,
+	subpixelOffsetValues: Float32Array,
 	visitedEdges: Set<string>
 ): EdgePath {
-	const points: EdgePoint[] = [indexToPoint(startIndex, width), indexToPoint(nextIndex, width)];
+	const points: EdgePoint[] = [
+		indexToPoint(startIndex, width, thetaValues, subpixelOffsetValues),
+		indexToPoint(nextIndex, width, thetaValues, subpixelOffsetValues)
+	];
 	visitedEdges.add(edgeKey(startIndex, nextIndex));
 
 	let previousIndex: number | null = startIndex;
@@ -209,7 +217,7 @@ function tracePath(
 		const chosenIndex = chooseNextIndex(currentIndex, previousIndex, neighbors, thetaValues, width);
 
 		visitedEdges.add(edgeKey(currentIndex, chosenIndex));
-		points.push(indexToPoint(chosenIndex, width));
+		points.push(indexToPoint(chosenIndex, width, thetaValues, subpixelOffsetValues));
 
 		previousIndex = currentIndex;
 		currentIndex = chosenIndex;
@@ -250,10 +258,15 @@ function edgeKey(a: number, b: number): string {
 	return a < b ? `${a}:${b}` : `${b}:${a}`;
 }
 
-function indexToPoint(index: number, width: number): EdgePoint {
+function indexToPoint(
+	index: number,
+	width: number,
+	thetaValues: Float32Array,
+	subpixelOffsetValues: Float32Array
+): EdgePoint {
 	return {
-		x: (index % width) + 0.5,
-		y: Math.floor(index / width) + 0.5
+		x: (index % width) + 0.5 + Math.cos(thetaValues[index]) * subpixelOffsetValues[index],
+		y: Math.floor(index / width) + 0.5 + Math.sin(thetaValues[index]) * subpixelOffsetValues[index]
 	};
 }
 

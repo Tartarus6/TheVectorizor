@@ -59,6 +59,7 @@ fn blur_horizontal(in: VsOut) -> @location(0) vec4f {
         sum = sum + sample * gaussian_weights[idx];
     }
 
+    // return vec4f(textureLoad(input_tex, texel, 0));
     return vec4f(sum, transparency);
 }
 
@@ -87,5 +88,6 @@ fn blur_vertical(in: VsOut) -> @location(0) vec4f {
         sum = sum + sample * gaussian_weights[idx];
     }
 
+    // return vec4f(textureLoad(input_tex, texel, 0));
     return vec4f(sum, transparency);
 }

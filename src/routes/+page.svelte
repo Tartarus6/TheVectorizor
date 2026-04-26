@@ -15,7 +15,7 @@
 	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
 	let tile_size = $state(512);
 	let num_cluster_passes = $state(5);
-	let num_edge_trace_passes = $state(0);
+	let num_edge_trace_passes = $state(300);
 	let blur_radius = $state(2);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
@@ -213,12 +213,12 @@
 	{/if}
 </div>
 <div class="flex w-fit flex-col gap-2 bg-black">
-	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
-	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated; background: transparent;"
-	></canvas>
-	<canvas bind:this={edge_canvas} style="image-rendering: pixelated; background: transparent;"
-	></canvas>
 	{#if svgUrl}
 		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="bg-white" />
 	{/if}
+	<canvas bind:this={edge_canvas} style="image-rendering: pixelated; background: transparent;"
+	></canvas>
+	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated; background: transparent;"
+	></canvas>
+	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>

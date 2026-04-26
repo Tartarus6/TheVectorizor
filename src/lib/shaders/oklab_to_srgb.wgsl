@@ -46,7 +46,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     var oklab = textureLoad(oklab_texture, texel, 0);
     if (debug_uniforms.show_edge_pixels != 0u) {
         let pix = oklab;
-        oklab = vec4f(pix.x, 0.5 * cos(pix.z * 2.0), 0.5 * sin(pix.z * 2.0), pix.w);
+        oklab = vec4f(0.5, 0.5 * cos(pix.z * 2.0) * pix.w, 0.5 * sin(pix.z * 2.0) * pix.w, pix.w);
 
         if (pix.x == 0f) {
             oklab = vec4f(0, 0, 0, 0);

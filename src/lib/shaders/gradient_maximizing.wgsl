@@ -40,9 +40,9 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 /*
 grad_tex: texture_2d<f32>
-    x -> theta    (direction of gradient)
+    x -> 0        (unused)
     y -> grad_mag (magnitude of gradient)
-    z -> 0        (unused)
+    z -> theta    (direction of gradient)
     w -> 0        (unused)
 
 output:
@@ -56,7 +56,7 @@ output:
 
 
 // TODO: move this LOW value to an external variable passed through uniforms
-const LOW: f32 = 0.05;
+const LOW: f32 = 0.1;
 
 
 @fragment
@@ -73,7 +73,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 
     // Sample with linear filtering to allow sub-pixel neighborhood checks.
     let grad_pixel = textureSampleLevel(grad_tex, grad_sampler, uv, 0.0);
-    let theta = grad_pixel.x;
+    let theta = grad_pixel.z;
     let grad_mag = grad_pixel.y;
 
     // TODO: is there a way to cast the pixels as some struct, so that it's extra obvious that what the xyzw values are?
@@ -116,22 +116,25 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 }
 
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
+    const neighbor_check_distance: f32 = 1.5;
+
     // pick the neighbor with the greatest gradient magnitude
-    var greatest_neighbor= vec4f(0);         // temporary, should be overwritten
-    var greatest_neighbor_offset = vec2f(0); // temporary, should be overwritten
+    var greatest_neighbor= vec4f(0); // temporary, should be overwritten
+    var greatest_neighbor_flip = 0;        // temporary, should be overwritten
     for (var flip = -1; flip <= 1; flip += 2) {
-        let neighbor_offset = f32(flip) * vec2f(cos(grad_pixel.x), sin(grad_pixel.x));
+        let neighbor_offset = f32(flip) * vec2f(cos(grad_pixel.z), sin(grad_pixel.z)) * neighbor_check_distance;
         let neighbor_pos_uv = (vec2f(texel) + neighbor_offset) / vec2f(dims);
         let neighbor = textureSampleLevel(grad_tex, grad_sampler, neighbor_pos_uv, 0.0);
 
         if (neighbor.y > greatest_neighbor.y) {
             greatest_neighbor = neighbor;
-            greatest_neighbor_offset = neighbor_offset;
+            greatest_neighbor_flip = flip;
         }
     }
 
     // calculating subpixel_offset based off of greatest gradient neighbor
-    let subpixel_offset = (greatest_neighbor.y * greatest_neighbor.y) / (grad_pixel.y + greatest_neighbor.y);
+    let subpixel_offset = (greatest_neighbor.y * f32(greatest_neighbor_flip) * neighbor_check_distance) / (grad_pixel.y + greatest_neighbor.y);
 
+    // return 0;
     return subpixel_offset;
 }
