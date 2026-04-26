@@ -11,17 +11,11 @@ TODO: update above description for when this shader actually does sub-pixel stuf
 */
 
 /*
-input_tex:
+input_tex and output_tex:
     x -> edge flag
     y -> grad_mag
     z -> theta
-    w -> above LOW flag
-
-output_tex:
-    x -> edge flag
-    y -> grad_mag
-    z -> theta
-    w -> above LOW flag
+    w -> subpixel offset (in the direction of the gradient)
 */
 @group(0) @binding(0) var input_tex: texture_2d<f32>;
 @group(0) @binding(1) var grad_sampler: sampler;
@@ -47,18 +41,17 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let edge_flag = in_pixel.x;
     let grad_mag = in_pixel.y;
     let theta = in_pixel.z;
-    let above_low_flag = in_pixel.w;
-
+    let subpixel_offset = in_pixel.w;
 
     // TODO: might be able to save these texture stores with some initial copying or something
     textureStore(output_tex, texel, in_pixel);
 
-
-    if (above_low_flag != 1f || edge_flag != 1f) {
+    if (edge_flag == 0f) {
         return;
     }
 
-    let section = u32((theta + (PI / 4.0) + (PI / 2.0)) / (2 * PI) * 4.0) % 4;
+    // let section = u32((theta + (PI / 4.0) + (PI / 2.0)) / (2 * PI) * 4.0) % 4;
+    let section = get_section(theta, 4);
 
     let dirs = array<vec2i, 4>(
         vec2i(1, 0),   // right
@@ -83,6 +76,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         var best_pos = vec2u(0);   // default, should be overwritten
 
         for (var i = 0u; i < CANDIDATES_SIZE; i = i + 1u) {
+            // ?NOTE: the error below is untrue, CANDIDATES_SIZE does properly work to define the array
             let pos = vec2u(clamp(vec2i(texel) + (flip_mult * candidates[i]), vec2i(0), vec2i(dims) - vec2i(1)));
             let cand_pix = textureLoad(input_tex, pos, 0);
             
@@ -103,4 +97,22 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         // write best candidate as an edge
         textureStore(output_tex, best_pos, vec4f(1, best_pix.yz, 1));
     }
+}
+
+fn get_section(theta: f32, section_count: u32) -> u32 {
+    // change gradient direction into edge tangent direction
+    let edge_direction = theta + (PI / 2f);
+
+    // offset edge tangent direction so that each section will be centered around their primary direction
+    // e.g. section 0 with `section_count` of 4 includes (-π/4, π/4)
+    let offset_direction = edge_direction + (PI / f32(section_count));
+
+    // apply a scaling factor so that rounding produces `section_count` sections each rotation
+    let float_section = offset_direction * (f32(section_count) / (2f * PI));
+
+    // TODO: prevent possible overflow if theta is negative (theta shouldnt ever be negative, but it'd be smart to fix it here)
+    // truncate `float_section` to get integer, and modulus to keep within range of [0, `section_count`]
+    let section = u32(float_section) % section_count;
+
+    return section;
 }

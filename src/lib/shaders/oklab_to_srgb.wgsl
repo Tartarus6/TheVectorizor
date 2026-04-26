@@ -48,7 +48,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
         let pix = oklab;
         oklab = vec4f(pix.x, 0.5 * cos(pix.z * 2.0), 0.5 * sin(pix.z * 2.0), pix.w);
 
-        if (pix.w == 0f) {
+        if (pix.x == 0f) {
             oklab = vec4f(0, 0, 0, 0);
         }
     }
