@@ -42,7 +42,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
 
         for (var i=0u; i<checks_per_ring; i++) {
             // TODO: precompute offsets, since sin() and cos() are kinda expensive
-            let angle = (2 * PI) * f32(i / checks_per_ring);
+            let angle = (2 * PI) * (f32(i) / f32(checks_per_ring));
             let offset = vec2f(cos(angle), sin(angle)) * f32(radius);
 
             // TODO: could probably do some mins and select stuff to make other_pos be a vec2u

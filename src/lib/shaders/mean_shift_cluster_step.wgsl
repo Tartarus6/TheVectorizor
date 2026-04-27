@@ -1,6 +1,5 @@
 struct FloatUniforms {
     base_bandwidth: f32,
-    mean_density_score: f32,
 }
 
 struct UintUniforms {
@@ -11,10 +10,11 @@ struct UintUniforms {
 
 
 @group(0) @binding(0) var<uniform> float_uniforms: FloatUniforms;
-@group(0) @binding(1) var<uniform> uint_uniforms: UintUniforms;
-@group(0) @binding(2) var input_colors: texture_2d<f32>;
-@group(0) @binding(3) var<storage,read_write> input_density_scores: array<f32>;
-@group(0) @binding(4) var output_colors: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(1) var<storage,read> input_mean_density_sum: array<f32>;
+@group(0) @binding(2) var<uniform> uint_uniforms: UintUniforms;
+@group(0) @binding(3) var input_colors: texture_2d<f32>;
+@group(0) @binding(4) var<storage,read_write> input_density_scores: array<f32>;
+@group(0) @binding(5) var output_colors: texture_storage_2d<rgba16float, write>;
 
 
 const PI = 3.1415926535;
@@ -24,6 +24,7 @@ const PI = 3.1415926535;
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let dims = textureDimensions(input_colors);
+    let mean_density_score = input_mean_density_sum[0] / f32(dims.x * dims.y);
 
     // apply tile offsets to get this thread's pixel's position
     let pos = vec2u(id.x + uint_uniforms.tile_x, id.y + uint_uniforms.tile_y);
@@ -35,7 +36,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let color = textureLoad(input_colors, pos, 0);
     var cluster_sum = vec4f(0.0);
 
-    let bandwidth = get_bandwidth(input_density_scores[index]);
+    let bandwidth = get_bandwidth(input_density_scores[index], mean_density_score);
     let bandwidth_squared = bandwidth * bandwidth;
 
     // count the total weights to divide by later
@@ -83,13 +84,13 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
 
 
 // per-color bandwidth calculation
-fn get_bandwidth(density_score: f32) -> f32 {
+fn get_bandwidth(density_score: f32, mean_density_score: f32) -> f32 {
     const epsilon = 0.000001; // prevents divide by zero
     const min_mult = 0.1f;
     const max_mult = 2f;
 
-    // let mult = clamp(pow(float_uniforms.mean_density_score / (density_score + epsilon), alpha), min_mult, max_mult);
-    let mult = clamp(float_uniforms.mean_density_score / (density_score + epsilon), min_mult, max_mult);
+    // let mult = clamp(pow(mean_density_score / (density_score + epsilon), alpha), min_mult, max_mult);
+    let mult = clamp(mean_density_score / (density_score + epsilon), min_mult, max_mult);
 
     return float_uniforms.base_bandwidth * mult;
 }
