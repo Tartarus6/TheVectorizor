@@ -120,7 +120,7 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 }
 
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
-	let neighbot_checks: u32 = 2; // number of neighbor checks in each direction (so value of 2 would mean checking 4 neighbors + 1 for the pixel itsself)
+	let neighbor_checks: u32 = 2; // number of neighbor checks in each direction (so value of 2 would mean checking 4 neighbors + 1 for the pixel itsself)
 	let neighbor_check_distance: f32 = 1.5;
     let theta = grad_pixel.y;
 
@@ -147,8 +147,8 @@ fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
     var weighted_offset_sum = 0f; // sum of pixel offsets in direction of gradient weighted by that pixel's gradient magnitude
     var weights_sum = 0f;         // sum of the gradient magnitudes (for normalizing)
 
-    for (var mult: i32 = -1; mult <= 1; mult += 1) {
-    	let offset_magnitude = f32(mult) * neighbor_check_distance;
+    for (var mult: i32 = -i32(neighbor_checks); mult <= i32(neighbor_checks); mult += 1) {
+    	let offset_magnitude = f32(mult) * neighbor_check_distance / f32(neighbor_checks);
         let neighbor_offset = vec2f(cos(theta), sin(theta)) * offset_magnitude;
         let neighbor_pos_uv = (vec2f(texel) + neighbor_offset) / vec2f(dims);
 
