@@ -21,7 +21,7 @@
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
-	let canvas_scale = $state(5);
+	let canvas_scale = $state(3);
 
 	const onFileSelected = (e: any) => {
 		const file = e.target.files[0];

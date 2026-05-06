@@ -125,18 +125,15 @@ export async function run_shader(
 		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
-	const gaussian_gradient_output_texture = device.createTexture({
+	/*
+	gradient texture:
+		x -> gradient magnitude
+		y -> theta              (in the direction of the gradient)
+		z -> 0                  (unused)
+		w -> 0                  (unused)
+	*/
+	const gradient_texture = device.createTexture({
 		label: 'gaussian gradient output texture',
-		size: [imageBitMap.width, imageBitMap.height],
-		format: 'rgba16float',
-		usage:
-			GPUTextureUsage.TEXTURE_BINDING |
-			GPUTextureUsage.STORAGE_BINDING |
-			GPUTextureUsage.RENDER_ATTACHMENT
-	});
-
-	const gradient_max_output_texture = device.createTexture({
-		label: 'gradient max output texture',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
@@ -146,20 +143,35 @@ export async function run_shader(
 			GPUTextureUsage.COPY_SRC
 	});
 
-	const edge_trace_output_texture_ping = device.createTexture({
-		label: 'edge tracing output texture ping',
+	/*
+	edge textures:
+		x -> edge flag       (whether this pixel is part of an edge)
+		y -> subpixel_offset (in the direction of the gradient)
+		z -> 0               (unused)
+		w -> 0               (unused)
+	*/
+	const edge_texture_ping = device.createTexture({
+		label: 'edge tracing texture ping',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
-			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST |
+			GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
-	const edge_trace_output_texture_pong = device.createTexture({
-		label: 'edge tracing output texture pong',
+	const edge_texture_pong = device.createTexture({
+		label: 'edge tracing texture pong',
 		size: [imageBitMap.width, imageBitMap.height],
 		format: 'rgba16float',
 		usage:
-			GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.COPY_SRC |
+			GPUTextureUsage.COPY_DST |
+			GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	const gradient_max_sampler = device.createSampler({
@@ -169,14 +181,6 @@ export async function run_shader(
 		magFilter: 'linear',
 		minFilter: 'linear',
 		mipmapFilter: 'nearest'
-	});
-
-	// Difference-of-Gaussians intermediate textures
-	const gaussian_blur_texture = device.createTexture({
-		label: 'gaussian blur texture',
-		size: [imageBitMap.width, imageBitMap.height],
-		format: 'rgba16float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	// --- Shared Buffers ---
@@ -450,7 +454,10 @@ export async function run_shader(
 		    num_remaining_elements: u32,   /// how many elements exist in `in_partial_sums`
 		}
 		*/
-		var uniforms_data = new Uint32Array([partial_sum_size, imageBitMap.width * imageBitMap.height]);
+		const uniforms_data = new Uint32Array([
+			partial_sum_size,
+			imageBitMap.width * imageBitMap.height
+		]);
 
 		const uniforms_buffer = device!.createBuffer({
 			label: 'mean density uniforms buffer',
@@ -864,7 +871,7 @@ export async function run_shader(
 		// await device!.queue.onSubmittedWorkDone();
 	}
 
-	// --- Edge Trace Path ---
+	// --- Edge Trace Pass ---
 	const edge_trace_module = device.createShaderModule({
 		label: 'edge tracing module',
 		code: edge_tracing_step_shader
@@ -886,13 +893,29 @@ export async function run_shader(
 			label: 'edge tracing bind group',
 			layout: edge_trace_pipeline.getBindGroupLayout(0),
 			entries: [
-				{ binding: 0, resource: in_edge_texture.createView() },
-				{ binding: 1, resource: gradient_max_sampler },
+				// TODO: might want to use a local gradient_texture instead of global
+				{ binding: 0, resource: gradient_texture.createView() },
+				{ binding: 1, resource: in_edge_texture.createView() },
 				{ binding: 2, resource: out_edge_texture.createView() }
 			]
 		});
 
 		const encoder = device!.createCommandEncoder({ label: 'edge tracing encoder' });
+
+		encoder.copyTextureToTexture(
+			{
+				texture: in_edge_texture
+			},
+			{
+				texture: out_edge_texture
+			},
+			{
+				width: imageBitMap.width,
+				height: imageBitMap.height,
+				depthOrArrayLayers: 1
+			}
+		);
+
 		const pass = encoder.beginComputePass({
 			label: 'edge tracing compute pass'
 		});
@@ -906,13 +929,10 @@ export async function run_shader(
 	}
 
 	let startTime = performance.now();
-	let endTime = performance.now();
-
-	startTime = performance.now();
 	console.log();
 	console.log('Srgb -> OkLab:');
 	await srgb_to_oklab_pass();
-	endTime = performance.now();
+	let endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	startTime = performance.now();
@@ -922,7 +942,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	for (var pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
+	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
 		startTime = performance.now();
 
 		console.log();
@@ -944,8 +964,8 @@ export async function run_shader(
 	console.log();
 	console.log('GaussGradient:');
 	await gaussian_gradient_pass(
-		pass_index % 2 === 1 ? oklab_texture_ping : oklab_texture_pong,
-		gaussian_gradient_output_texture
+		num_cluster_passes % 2 === 0 ? oklab_texture_ping : oklab_texture_pong,
+		gradient_texture
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
@@ -953,33 +973,28 @@ export async function run_shader(
 	startTime = performance.now();
 	console.log();
 	console.log('Gradient Max:');
-	await gradient_max_pass(gaussian_gradient_output_texture, gradient_max_output_texture);
+	await gradient_max_pass(gradient_texture, edge_texture_ping);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
-	let final_edge_texture = gradient_max_output_texture;
-	if (num_edge_trace_passes > 0) {
-		for (
-			let edge_trace_pass_index = 0;
-			edge_trace_pass_index < num_edge_trace_passes;
-			edge_trace_pass_index++
-		) {
-			startTime = performance.now();
-			console.log();
-			console.log('Edge Trace Pass:', edge_trace_pass_index);
+	let final_edge_texture = edge_texture_ping;
+	for (
+		let edge_trace_pass_index = 0;
+		edge_trace_pass_index < num_edge_trace_passes;
+		edge_trace_pass_index++
+	) {
+		startTime = performance.now();
+		console.log();
+		console.log('Edge Trace Pass:', edge_trace_pass_index);
 
-			const output_texture =
-				edge_trace_pass_index % 2 === 0
-					? edge_trace_output_texture_ping
-					: edge_trace_output_texture_pong;
+		const output_texture = edge_trace_pass_index % 2 === 0 ? edge_texture_pong : edge_texture_ping;
 
-			await edge_trace_pass(final_edge_texture, output_texture);
-			final_edge_texture = output_texture;
+		await edge_trace_pass(final_edge_texture, output_texture);
+		final_edge_texture = output_texture;
 
-			endTime = performance.now();
-			console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
-		}
+		endTime = performance.now();
+		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
 	// TODO: the svg implementation below is not final. it's just for testing.
@@ -988,6 +1003,7 @@ export async function run_shader(
 	console.log('Edge SVG:');
 	const svg = await textureToEdgeSvg(
 		device,
+		gradient_texture,
 		final_edge_texture,
 		imageBitMap.width,
 		imageBitMap.height
@@ -996,12 +1012,12 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	await oklab_to_srgb_pass(
-		pass_index % 2 === 1 ? oklab_texture_ping : oklab_texture_pong,
+		num_cluster_passes % 2 === 0 ? oklab_texture_ping : oklab_texture_pong,
 		false,
 		clusterCanvas
 	);
 
-	await oklab_to_srgb_pass(final_edge_texture, true, edgeCanvas);
+	await oklab_to_srgb_pass(final_edge_texture, false, edgeCanvas);
 
 	return [true, svg];
 }

@@ -38,9 +38,9 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 /*
 output: texture_2d<f32>
-    x -> 0        (unused)
-    y -> grad_mag (magnitude of gradient)
-    z -> theta    (direction of gradient)
+	x -> grad_mag (magnitude of gradient)
+	y -> theta    (direction of gradient)
+    z -> 0        (unused)
     w -> 0        (unused)
 */
 
@@ -82,5 +82,5 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let grad_mag = sqrt(0.5 * ((A + C) + sqrt((A - C)*(A - C) + (4f * B * B))));
 
     // TODO: switch texture format to match the one used for gradient maximizing
-    return vec4f(0, grad_mag, theta, 0);
+    return vec4f(grad_mag, theta, 0, 0);
 }

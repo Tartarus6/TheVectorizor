@@ -34,12 +34,14 @@ const neighborOffsets = [
 
 export async function textureToEdgeSvg(
 	device: GPUDevice,
-	texture: GPUTexture,
+	grad_tex: GPUTexture,
+	edge_tex: GPUTexture,
 	width: number,
 	height: number
 ): Promise<string> {
-	const data = await readRgba16FloatTexture(device, texture, width, height);
-	const paths = edgeTextureToPaths(data, width, height);
+	const grad_data = await readRgba16FloatTexture(device, grad_tex, width, height);
+	const edge_data = await readRgba16FloatTexture(device, edge_tex, width, height);
+	const paths = edgeTextureToPaths(grad_data, edge_data, width, height);
 	return pathsToSvg(paths, width, height);
 }
 
@@ -88,7 +90,12 @@ async function readRgba16FloatTexture(
 	return data;
 }
 
-function edgeTextureToPaths(data: Float32Array, width: number, height: number): EdgePath[] {
+function edgeTextureToPaths(
+	grad_data: Float32Array,
+	edge_data: Float32Array,
+	width: number,
+	height: number
+): EdgePath[] {
 	const pixelCount = width * height;
 	const edgeMask = new Uint8Array(pixelCount);
 	const thetaValues = new Float32Array(pixelCount);
@@ -97,13 +104,13 @@ function edgeTextureToPaths(data: Float32Array, width: number, height: number): 
 
 	for (let index = 0; index < pixelCount; index += 1) {
 		const base = index * 4;
-		const edgeFlag = data[base];
-		const magnitude = data[base + 1];
+		const edgeFlag = edge_data[base];
+		// const magnitude = grad_data[base];
 
 		if (edgeFlag > 0.5) {
 			edgeMask[index] = 1;
-			thetaValues[index] = data[base + 2];
-			subpixelOffsetValues[index] = data[base + 3];
+			thetaValues[index] = grad_data[base + 1];
+			subpixelOffsetValues[index] = edge_data[base + 1];
 		}
 	}
 
