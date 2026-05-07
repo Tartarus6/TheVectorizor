@@ -17,10 +17,10 @@ const partial_sum_size: number = 8;
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
 // DONE: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
-// TODO: implement debug canvas view (showing the density scores texture)
+// DONE: implement debug canvas view (showing the density scores texture)
+// DONE: keep density scores as a buffer, don't turn back into number.
 // TODO: automate performance balancing. start at a very low tile size and do some tests, increasing it until it's as big as it can be while meeting max acceptible execution time
 // TODO: prevent needing to do texture loads in mean shift cluster step. calculate and store color_dist_squared and image_dist_squared in update_density_scores.wgsl
-// TODO: keep density scores as a buffer, don't turn back into number.
 // TODO: figure out a good value for partial_sum_size
 // TODO: (maybe) switch to holding density scores in a texture rather than a general array buffer
 // TODO: (maybe) turn update_density_scores into a fragment shader
@@ -28,10 +28,10 @@ const partial_sum_size: number = 8;
 
 // EDGE DETECTION TODOS
 // DONE: filter maxima to find only important edges
+// DONE: implement Canny double threshold. Above H, maxima are immediately accepted, and abolve L, pixels are taken if connected to valid points. Below L are ignored. (H and L should be calculated based on image)
+// DONE: switch to including alpha in gradient math, rather than just Lab
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
 // TODO: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
-// TODO: implement Canny double threshold. Above H, maxima are immediately accepted, and abolve L, pixels are taken if connected to valid points. Below L are ignored. (H and L should be calculated based on image)
-// TODO: (maybe) switch to including alpha in gradient math, rather than just Lab
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -44,8 +44,8 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
-/// returns whether the colors changed (used to know whether to increase count)
 
+/// returns whether the colors changed (used to know whether to increase count)
 function compute_gaussian_kernel(radius: number): Float32Array {
 	const sigma = radius / 3.0;
 	const weights = new Float32Array(radius + 1);
