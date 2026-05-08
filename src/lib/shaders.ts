@@ -16,38 +16,53 @@ For each pixel with a degree greater than 2 (meaning more than 2 neighbors), say
 the pixel that is the soonest clockwise pixel (or counterclockwise it shouldnt matter as long as it's
 consistent).
 
-*Issue*: not sure how to define which direction to start with (easy to tell by looking at it, but not
-sure how to define it)
+*Issue 1*: not sure how to define which direction to start with (easy to tell by looking at it, but not
+	sure how to define it)
+*Issue 2*: Need to make sure every pixel marked as an edge has at least a degree of 2, otherwise edge
+	tracing isn't complete yet, and it won't be possible to turn that edge into part of a closed shape.
 
 For Example:
+	╭────────────────────────────────────────────╮
+	│Key:                                        │
+	│	" ■ " -> non-edge pixel (top left shape) │
+	│	" ● " -> non-edge pixel (bottom shape)   │
+	│	" ▲ " -> non-edge pixel (top right shape)│
+	│	"███" -> edge pixel                      │
+	╰────────────────────────────────────────────╯
 
- +-1--2--3--4--5--6-+
-A| ·  ·  · [ ] ·  · |
-B|[ ] ·  · [ ] ·  · |
-C| · [ ] · [ ] ·  · |
-D| ·  · [ ][ ][ ][ ]|
-E| ·  ·  ·  ·  ·  · |
- +------------------+
+ ╭─1──2──3──4──5──6─╮
+A│ ■  ■  ■ ███ ▲  ▲ │
+B│███ ■  ■ ███ ▲  ▲ │
+C│ ● ███ ■ ███ ▲  ▲ │
+D│ ●  ● ████████████│
+E│ ●  ●  ●  ●  ●  ● │
+ ╰──────────────────╯
 
 We would want to split the pixels above into 3 shapes: the bottom ones, the top left ones, and the top right
 ones. In order to make those shapes, we can connect:
-	Top Left  - A4 <-> B4 <-> C4 <-> D4 <-> D3 <-> C2 <-> B1
-	Bottom    - B1 <-> C2 <-> D3 <-> D4 <-> D5 <-> D6
-	Top Right - D6 <-> D5 <-> D4 <-> C4 <-> B4 <-> A4
+- ■: A4 ←→ B4 ←→ C4 ←→ D4 ←→ D3 ←→ C2 ←→ B1
+- ●: B1 ←→ C2 ←→ D3 ←→ D4 ←→ D5 ←→ D6
+- ▲: D6 ←→ D5 ←→ D4 ←→ C4 ←→ B4 ←→ A4
 
 In the shapes described above, D4 is treated as a "hub" node, so it is included in all 3. I'm not sure how to
 make sure that an algorithm to make the shapes will include that central pixel instead of, for example, using
-these edges instead (skipping the hub node sometimes).
-	Top Left  - A4 <-> B4 <-> C4 <-> D3 <-> C2 <-> B1
-	Bottom    - B1 <-> C2 <-> D3 <-> D4 <-> D5 <-> D6
-	Top Right - D6 <-> D5 <-> C4 <-> B4 <-> A4
+these edges instead (skipping the hub node sometimes):
+- ■: A4 ←→ B4 ←→ C4 ←→ D3 ←→ C2 ←→ B1
+- ●: B1 ←→ C2 ←→ D3 ←→ D4 ←→ D5 ←→ D6
+- ▲: D6 ←→ D5 ←→ C4 ←→ B4 ←→ A4
 
 Notable things for an algorithm:
+- The connections described above aren't closed, but that's just because i wanted a short example. We want for
+	All shapes to be closed loops. Though, we might want to somehow treat the border of the image as an edge?
+	In that case, it would be closed. I think that would make sense.
+- The connections descrived above are 2-way, since the outline of a shape isn't directional.
 - In the diagram above, D3, C4, D4, and D5 are the high-degree pixels.
 - D4 is the "hub" pixel. not sure how to identify that, since D3, D4, and D5 all have a degree of 3, and C4
 	even has a degree of 4. So idk how to define a hub node such that it would pick D4.
-- The connections described above aren't closed, but that's just because i wanted a short example. We want for
-	All shapes to be closed loops.
+
+Maybe could use the theta values of each edge pixel to see which pixels they "point towards", and look for pixels
+that are very "pointed at" to find the "hub" pixels? (each pixel would point in 2 directions, since forward and
+backward along edge are arbitrary)
 */
 
 // TODO: move this const somewhere better
@@ -71,6 +86,7 @@ const partial_sum_size: number = 8;
 // DONE: filter maxima to find only important edges
 // DONE: implement Canny double threshold. Above H, maxima are immediately accepted, and abolve L, pixels are taken if connected to valid points. Below L are ignored. (H and L should be calculated based on image)
 // DONE: switch to including alpha in gradient math, rather than just Lab
+// TODO: better handle pixels on the borders of the image, i think it's currently nearly/completely impossible for them to be marked as an edge. (maybe they should always be edges?)
 // TODO: add a pass to check whether edge tracing is complete (check if all marked edge pixels have degree of at least 2) (need to do this while avoiding the 100ms waits of cpu-side reads)
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
 // TODO: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
