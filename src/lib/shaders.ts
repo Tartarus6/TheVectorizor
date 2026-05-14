@@ -63,6 +63,28 @@ Notable things for an algorithm:
 Maybe could use the theta values of each edge pixel to see which pixels they "point towards", and look for pixels
 that are very "pointed at" to find the "hub" pixels? (each pixel would point in 2 directions, since forward and
 backward along edge are arbitrary)
+
+
+Another separate issue is how to deal with staircase pixel patterns
+
+ ╭─1──2──3──4──5─╮
+A│███ ▲  ▲  ▲  ▲ │
+B│██████ ▲  ▲  ▲ │
+C│ ● ██████ ▲  ▲ │
+D│ ●  ● ██████ ▲ │
+E│ ●  ●  ● ██████│
+╰────────────────╯
+
+This needs to be identified as a single edge. So like:
+A1 ←→ B1 ←→ B2 ←→ C2 ←→ C3 ←→ D3 ←→ D4 ←→ E4 ←→ E5
+
+Pixels do need to be able to connect diagonally (since my edge pixels often have diagonal-only connections). But
+sometimes it does end up as a staircase like above. So the example above should be recognised as a single edge,
+rather than 2 diagonal edges, or 2 diagonal edges with a staircase on top, or whatever else.
+
+Whatever solution we end up with needs to be efficient, since this project is focused on optimization and
+efficiency. So a complex solution like checking all the neighbors of each neighbor to check whether this connection
+is needed or not would be too inefficient.
 */
 
 // TODO: move this const somewhere better

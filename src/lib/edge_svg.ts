@@ -23,7 +23,7 @@ const neighborOffsets = [
 	// diagonals
 	[1, 1],
 	[-1, 1],
-	[-1 - 1],
+	[-1, -1],
 	[1, -1],
 	// cardinals
 	[1, 0],
