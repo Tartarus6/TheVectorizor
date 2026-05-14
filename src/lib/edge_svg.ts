@@ -19,6 +19,11 @@ type EdgePath = {
 	closed: boolean;
 };
 
+type DirectedEdge = {
+	from: number;
+	to: number;
+};
+
 const neighborOffsets = [
 	// diagonals
 	[1, 1],
@@ -99,7 +104,6 @@ function edgeTextureToPaths(
 	const pixelCount = width * height;
 	const edgeMask = new Uint8Array(pixelCount);
 	const thetaValues = new Float32Array(pixelCount);
-	const degreeValues = new Uint8Array(pixelCount);
 	const subpixelOffsetValues = new Float32Array(pixelCount);
 
 	for (let index = 0; index < pixelCount; index += 1) {
@@ -114,64 +118,26 @@ function edgeTextureToPaths(
 		}
 	}
 
+	const subpixelPoints: EdgePoint[] = new Array(pixelCount);
 	for (let index = 0; index < pixelCount; index += 1) {
-		if (edgeMask[index] === 0) {
-			continue;
-		}
-
-		degreeValues[index] = getNeighborIndices(index, width, height, edgeMask).length;
+		subpixelPoints[index] = indexToPoint(index, width, thetaValues, subpixelOffsetValues);
 	}
 
-	const visitedEdges = new Set<string>();
-	const paths: EdgePath[] = [];
+	// Keep only the 2-core of the edge graph so dangling/open chains are removed
+	// before any closed-face tracing.
+	const cycleEdgeMask = cullOpenEdgePixels(width, height, edgeMask);
 
-	const traceIfNeeded = (startIndex: number, neighborIndices: number[]) => {
-		for (const neighborIndex of neighborIndices) {
-			if (visitedEdges.has(edgeKey(startIndex, neighborIndex))) {
-				continue;
-			}
-
-			const path = tracePath(
-				startIndex,
-				neighborIndex,
-				width,
-				height,
-				edgeMask,
-				thetaValues,
-				subpixelOffsetValues,
-				visitedEdges
-			);
-			if (path.points.length >= 2) {
-				paths.push(path);
-			}
-		}
-	};
-
-	for (let index = 0; index < pixelCount; index += 1) {
-		// if (edgeMask[index] === 0) {
-		if (edgeMask[index] === 0 || degreeValues[index] === 2) {
-			continue;
-		}
-
-		traceIfNeeded(index, getNeighborIndices(index, width, height, edgeMask));
-	}
-
-	for (let index = 0; index < pixelCount; index += 1) {
-		if (edgeMask[index] === 0) {
-			continue;
-		}
-
-		traceIfNeeded(index, getNeighborIndices(index, width, height, edgeMask));
-	}
-
-	return paths;
+	const adjacency = buildSortedAdjacency(width, height, cycleEdgeMask, subpixelPoints);
+	return traceClosedFaces(adjacency, subpixelPoints);
 }
 
 function pathsToSvg(paths: EdgePath[], width: number, height: number): string {
 	const strokeWidth = Math.max(1 / Math.max(width, height), 0.75);
 	const pathElements = paths
 		.map((path) => {
-			if (path.points.length < 2) {
+			// By this point, paths should already be filtered for validity
+			// but keep a sanity check just in case
+			if (!path.closed || path.points.length < 3) {
 				return '';
 			}
 
@@ -181,9 +147,7 @@ function pathsToSvg(paths: EdgePath[], width: number, height: number): string {
 			});
 
 			const d = `${commands.join(' ')}${path.closed ? ' Z' : ''}`;
-			// random stroke color
-			return `<path stroke="#${Math.floor(Math.random() * 16777215).toString(16)}" d="${d}" />`;
-			// return `<path stroke="black" d="${d}" />`;
+			return `<path fill="#${Math.floor(Math.random() * 16777215).toString(16)}" d="${d}" />`;
 		})
 		.filter(Boolean)
 		.join('');
@@ -191,54 +155,194 @@ function pathsToSvg(paths: EdgePath[], width: number, height: number): string {
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" fill="none" stroke="black" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">${pathElements}</svg>`;
 }
 
-function tracePath(
-	startIndex: number,
-	nextIndex: number,
+function buildSortedAdjacency(
 	width: number,
 	height: number,
 	edgeMask: Uint8Array,
-	thetaValues: Float32Array,
-	subpixelOffsetValues: Float32Array,
-	visitedEdges: Set<string>
-): EdgePath {
-	const points: EdgePoint[] = [
-		indexToPoint(startIndex, width, thetaValues, subpixelOffsetValues),
-		indexToPoint(nextIndex, width, thetaValues, subpixelOffsetValues)
-	];
-	visitedEdges.add(edgeKey(startIndex, nextIndex));
+	points: EdgePoint[]
+): number[][] {
+	const pixelCount = width * height;
+	const adjacency: number[][] = new Array(pixelCount);
 
-	let previousIndex: number | null = startIndex;
-	let currentIndex = nextIndex;
-	let closed = false;
-
-	while (true) {
-		const neighbors = getNeighborIndices(currentIndex, width, height, edgeMask).filter(
-			(candidateIndex) =>
-				candidateIndex !== previousIndex && !visitedEdges.has(edgeKey(currentIndex, candidateIndex))
-		);
-
-		if (neighbors.length === 0) {
-			break;
+	for (let index = 0; index < pixelCount; index += 1) {
+		if (edgeMask[index] === 0) {
+			adjacency[index] = [];
+			continue;
 		}
 
-		const chosenIndex = chooseNextIndex(currentIndex, previousIndex, neighbors, thetaValues, width);
+		const neighbors = getNeighborIndices(index, width, height, edgeMask);
+		const center = points[index];
+		neighbors.sort((a, b) => {
+			const pointA = points[a];
+			const pointB = points[b];
+			const angleA = Math.atan2(pointA.y - center.y, pointA.x - center.x);
+			const angleB = Math.atan2(pointB.y - center.y, pointB.x - center.x);
+			return angleA - angleB;
+		});
 
-		visitedEdges.add(edgeKey(currentIndex, chosenIndex));
-		points.push(indexToPoint(chosenIndex, width, thetaValues, subpixelOffsetValues));
+		adjacency[index] = neighbors;
+	}
 
-		previousIndex = currentIndex;
-		currentIndex = chosenIndex;
+	return adjacency;
+}
 
-		if (currentIndex === startIndex) {
-			closed = true;
-			break;
+function cullOpenEdgePixels(width: number, height: number, edgeMask: Uint8Array): Uint8Array {
+	const pixelCount = width * height;
+	const keptMask = edgeMask.slice();
+	const degree = new Uint16Array(pixelCount);
+	const neighborLists: number[][] = new Array(pixelCount);
+	const queue: number[] = [];
+
+	for (let index = 0; index < pixelCount; index += 1) {
+		if (keptMask[index] === 0) {
+			neighborLists[index] = [];
+			continue;
+		}
+
+		const neighbors = getNeighborIndices(index, width, height, keptMask);
+		neighborLists[index] = neighbors;
+		degree[index] = neighbors.length;
+
+		if (degree[index] < 2) {
+			queue.push(index);
 		}
 	}
 
-	return {
-		points,
-		closed
-	};
+	while (queue.length > 0) {
+		const current = queue.pop();
+		if (current === undefined) {
+			continue;
+		}
+
+		if (keptMask[current] === 0 || degree[current] >= 2) {
+			continue;
+		}
+
+		keptMask[current] = 0;
+
+		for (const neighbor of neighborLists[current]) {
+			if (keptMask[neighbor] === 0) {
+				continue;
+			}
+
+			if (degree[neighbor] > 0) {
+				degree[neighbor] -= 1;
+			}
+
+			if (degree[neighbor] < 2) {
+				queue.push(neighbor);
+			}
+		}
+	}
+
+	return keptMask;
+}
+
+function traceClosedFaces(adjacency: number[][], points: EdgePoint[]): EdgePath[] {
+	const visitedHalfEdges = new Set<string>();
+	const paths: EdgePath[] = [];
+	const totalHalfEdges = adjacency.reduce((count, neighbors) => count + neighbors.length, 0);
+	const MIN_CYCLE_POINTS = 5; // Require at least 5 points to filter staircase artifacts
+	const MIN_AREA = 1.0; // Minimum area to avoid tiny noise loops
+
+	for (let startFrom = 0; startFrom < adjacency.length; startFrom += 1) {
+		const neighbors = adjacency[startFrom];
+		if (neighbors.length === 0) {
+			continue;
+		}
+
+		for (const startTo of neighbors) {
+			const startKey = directedEdgeKey(startFrom, startTo);
+			if (visitedHalfEdges.has(startKey)) {
+				continue;
+			}
+
+			const cycle = traceSingleFace(
+				{ from: startFrom, to: startTo },
+				adjacency,
+				visitedHalfEdges,
+				totalHalfEdges
+			);
+
+			if (cycle === null) {
+				continue;
+			}
+
+			// Remove duplicate end point if present
+			if (cycle[0] === cycle[cycle.length - 1]) {
+				cycle.pop();
+			}
+
+			// Require minimum cycle length to filter staircase artifacts
+			if (cycle.length < MIN_CYCLE_POINTS) {
+				continue;
+			}
+
+			const polygonPoints = cycle.map((index) => points[index]);
+			const signedArea = polygonSignedArea(polygonPoints);
+
+			// In image coordinates (y-down), clockwise loops have positive area.
+			// Keeping only positive area removes the outer/exterior face cycles.
+			// Also require minimum area to filter tiny noise from staircases.
+			if (signedArea < MIN_AREA) {
+				continue;
+			}
+
+			paths.push({
+				points: polygonPoints,
+				closed: true
+			});
+		}
+	}
+
+	return paths;
+}
+
+function traceSingleFace(
+	startEdge: DirectedEdge,
+	adjacency: number[][],
+	visitedHalfEdges: Set<string>,
+	maxSteps: number
+): number[] | null {
+	const localHalfEdges = new Set<string>();
+	const cycleIndices: number[] = [startEdge.from];
+
+	let currentFrom = startEdge.from;
+	let currentTo = startEdge.to;
+
+	for (let step = 0; step <= maxSteps; step += 1) {
+		const currentKey = directedEdgeKey(currentFrom, currentTo);
+		if (localHalfEdges.has(currentKey)) {
+			return null;
+		}
+
+		localHalfEdges.add(currentKey);
+		visitedHalfEdges.add(currentKey);
+		cycleIndices.push(currentTo);
+
+		const neighbors = adjacency[currentTo];
+		if (neighbors.length < 2) {
+			return null;
+		}
+
+		const incomingIndex = neighbors.indexOf(currentFrom);
+		if (incomingIndex === -1) {
+			return null;
+		}
+
+		// Right-hand rule: choose the first clockwise edge from the reverse incoming edge.
+		const nextNeighborIndex = (incomingIndex - 1 + neighbors.length) % neighbors.length;
+		const nextTo = neighbors[nextNeighborIndex];
+
+		currentFrom = currentTo;
+		currentTo = nextTo;
+
+		if (currentFrom === startEdge.from && currentTo === startEdge.to) {
+			return cycleIndices;
+		}
+	}
+
+	return null;
 }
 
 function decodeFloat16(bits: number): number {
@@ -261,8 +365,8 @@ function decodeFloat16(bits: number): number {
 	return sign * Math.pow(2, exponent - 15) * (1 + fraction / 1024);
 }
 
-function edgeKey(a: number, b: number): string {
-	return a < b ? `${a}:${b}` : `${b}:${a}`;
+function directedEdgeKey(from: number, to: number): string {
+	return `${from}:${to}`;
 }
 
 function indexToPoint(
@@ -277,21 +381,15 @@ function indexToPoint(
 	};
 }
 
-function vectorLength(x: number, y: number): number {
-	return Math.hypot(x, y);
-}
-
-function normalizeVector(x: number, y: number): [number, number] {
-	const length = vectorLength(x, y);
-	if (length === 0) {
-		return [0, 0];
+function polygonSignedArea(points: EdgePoint[]): number {
+	let sum = 0;
+	for (let i = 0; i < points.length; i += 1) {
+		const current = points[i];
+		const next = points[(i + 1) % points.length];
+		sum += current.x * next.y - next.x * current.y;
 	}
 
-	return [x / length, y / length];
-}
-
-function dot(aX: number, aY: number, bX: number, bY: number): number {
-	return aX * bX + aY * bY;
+	return sum * 0.5;
 }
 
 function getNeighborIndices(
@@ -320,48 +418,4 @@ function getNeighborIndices(
 	}
 
 	return neighbors;
-}
-
-function chooseNextIndex(
-	currentIndex: number,
-	previousIndex: number | null,
-	candidates: number[],
-	thetaValues: Float32Array,
-	width: number
-): number {
-	const currentX = currentIndex % width;
-	const currentY = Math.floor(currentIndex / width);
-	let previousDirX = 0;
-	let previousDirY = 0;
-
-	if (previousIndex !== null) {
-		const previousX = previousIndex % width;
-		const previousY = Math.floor(previousIndex / width);
-		[previousDirX, previousDirY] = normalizeVector(currentX - previousX, currentY - previousY);
-	}
-
-	const theta = thetaValues[currentIndex] || 0;
-	const tangentX = Math.cos(theta + Math.PI / 2);
-	const tangentY = Math.sin(theta + Math.PI / 2);
-
-	let bestCandidate = candidates[0];
-	let bestScore = Number.NEGATIVE_INFINITY;
-
-	for (const candidate of candidates) {
-		const candidateX = candidate % width;
-		const candidateY = Math.floor(candidate / width);
-		const [dirX, dirY] = normalizeVector(candidateX - currentX, candidateY - currentY);
-
-		let score = Math.abs(dot(dirX, dirY, tangentX, tangentY));
-		if (previousIndex !== null) {
-			score += dot(previousDirX, previousDirY, dirX, dirY) * 2;
-		}
-
-		if (score > bestScore) {
-			bestScore = score;
-			bestCandidate = candidate;
-		}
-	}
-
-	return bestCandidate;
 }

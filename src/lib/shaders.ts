@@ -22,13 +22,13 @@ consistent).
 	tracing isn't complete yet, and it won't be possible to turn that edge into part of a closed shape.
 
 For Example:
-	╭────────────────────────────────────────────╮
+	╭───────────────────────────────────────────╮
 	│Key:                                        │
-	│	" ■ " -> non-edge pixel (top left shape) │
-	│	" ● " -> non-edge pixel (bottom shape)   │
-	│	" ▲ " -> non-edge pixel (top right shape)│
-	│	"███" -> edge pixel                      │
-	╰────────────────────────────────────────────╯
+	│	" ■ " → non-edge pixel (top left shape) │
+	│	" ● " → non-edge pixel (bottom shape)   │
+	│	" ▲ " → non-edge pixel (top right shape)│
+	│	"███" → edge pixel                      │
+	╰───────────────────────────────────────────╯
 
  ╭─1──2──3──4──5──6─╮
 A│ ■  ■  ■ ███ ▲  ▲ │
