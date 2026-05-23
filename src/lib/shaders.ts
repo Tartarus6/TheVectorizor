@@ -112,6 +112,7 @@ const partial_sum_size: number = 8;
 // TODO: add a pass to check whether edge tracing is complete (check if all marked edge pixels have degree of at least 2) (need to do this while avoiding the 100ms waits of cpu-side reads)
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
 // TODO: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
+// TODO: fix junctinons kinda pulling edges in in subpixel offsetting (like the bigger line in a t-junction will get pulled towards the smaller one)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -124,6 +125,7 @@ const partial_sum_size: number = 8;
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
+// TODO: (question) how exactly do layers work in an svg? what needs to be done to make sure that the stuff on top in the image is drawn on top in the svg?
 
 /// returns whether the colors changed (used to know whether to increase count)
 function compute_gaussian_kernel(radius: number): Float32Array {
@@ -225,10 +227,10 @@ export async function run_shader(
 
 	/*
 	edge textures:
-		x -> edge flag       (whether this pixel is part of an edge)
-		y -> subpixel_offset (in the direction of the gradient)
-		z -> 0               (unused)
-		w -> 0               (unused)
+		x -> edge flag        (whether this pixel is part of an edge)
+		y -> subpixel_offset  (in the direction of the gradient)
+		z -> packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+		w -> 0                (unused)
 	*/
 	const edge_texture_ping = device.createTexture({
 		label: 'edge tracing texture ping',
@@ -982,6 +984,8 @@ export async function run_shader(
 
 		const encoder = device!.createCommandEncoder({ label: 'edge tracing encoder' });
 
+		// TODO: is this better to have than having each pixel copy itsself into the following texture in the shader?
+		// copy in edge texture into out edge texture so that no info is lost
 		encoder.copyTextureToTexture(
 			{
 				texture: in_edge_texture
