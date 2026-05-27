@@ -7,7 +7,7 @@ pixels along the gradient normal to see if that pixel is the maximum or not.
 
 This basically just filters the texture to be only the edge pixels
 
-TODO: update above description for when this shader actually does sub-pixel stuff
+TODO: update above description to actually explain what subpixel stuff it does and how
 */
 
 /*
@@ -21,7 +21,7 @@ in_edge_tex/out_edge_tex:
     x -> edge flag        (whether this pixel is part of an edge)
     y -> subpixel_offset  (in the direction of the gradient)
     z -> packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
-    w -> 0                (unused)
+    w -> power            (number of edge connections to pixel)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var in_edge_tex: texture_2d<f32>;
@@ -78,8 +78,8 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
     // ?NOTE: the error below is untrue, CANDIDATES_SIZE does properly work to define the array
     var candidates = array<vec2i, CANDIDATES_SIZE>(
-        dir + perp,
         dir,
+        dir + perp,
         dir - perp,
     );
 

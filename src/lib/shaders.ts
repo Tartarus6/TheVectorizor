@@ -7,6 +7,7 @@ import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
 import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
+import edge_power_shader from '$lib/shaders/edge_power.wgsl?raw';
 import { textureToEdgeSvg } from '$lib/edge_svg';
 
 /*
@@ -23,7 +24,7 @@ consistent).
 
 For Example:
 	╭───────────────────────────────────────────╮
-	│Key:                                        │
+	│Key:                                       │
 	│	" ■ " → non-edge pixel (top left shape) │
 	│	" ● " → non-edge pixel (bottom shape)   │
 	│	" ▲ " → non-edge pixel (top right shape)│
@@ -128,6 +129,7 @@ type Pipelines = {
 	gaussianGradient: GPURenderPipeline;
 	gradientMax: GPURenderPipeline;
 	edgeTrace: GPUComputePipeline;
+	edgePower: GPUComputePipeline;
 };
 
 export async function run_shader(
@@ -276,6 +278,16 @@ export async function run_shader(
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
+	startTime = performance.now();
+	console.log();
+	console.log('Edge Power:');
+	const edgePowerOutput =
+		final_edge_texture === textures.edgePing ? textures.edgePong : textures.edgePing;
+	await edgePowerPass(device, pipelines.edgePower, final_edge_texture, edgePowerOutput, size);
+	final_edge_texture = edgePowerOutput;
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
 	// TODO: the svg implementation below is not final. it's just for testing.
 	startTime = performance.now();
 	console.log();
@@ -379,7 +391,7 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 		x -> edge flag        (whether this pixel is part of an edge)
 		y -> subpixel_offset  (in the direction of the gradient)
 		z -> packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
-		w -> 0                (unused)
+		w -> power            (number of edge connections to pixel)
 	*/
 	const edgePing = device.createTexture({
 		label: 'edge tracing texture ping',
@@ -646,6 +658,19 @@ function createPipelines(device: GPUDevice): Pipelines {
 		}
 	});
 
+	const edgePowerModule = device.createShaderModule({
+		label: 'edge power module',
+		code: edge_power_shader
+	});
+	const edgePower = device.createComputePipeline({
+		label: 'edge power compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: edgePowerModule,
+			entryPoint: 'cs_main'
+		}
+	});
+
 	return {
 		srgbToOklab,
 		oklabToSrgb,
@@ -656,7 +681,8 @@ function createPipelines(device: GPUDevice): Pipelines {
 		gaussianBlurV,
 		gaussianGradient,
 		gradientMax,
-		edgeTrace
+		edgeTrace,
+		edgePower
 	};
 }
 
@@ -1181,6 +1207,34 @@ async function edgeTracePass(
 
 	const pass = encoder.beginComputePass({
 		label: 'edge tracing compute pass'
+	});
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
+
+	device.queue.submit([encoder.finish()]);
+}
+
+async function edgePowerPass(
+	device: GPUDevice,
+	pipeline: GPUComputePipeline,
+	inEdgeTexture: GPUTexture,
+	outEdgeTexture: GPUTexture,
+	size: ImageSize
+): Promise<void> {
+	const bindGroup = device.createBindGroup({
+		label: 'edge power bind group',
+		layout: pipeline.getBindGroupLayout(0),
+		entries: [
+			{ binding: 0, resource: inEdgeTexture.createView() },
+			{ binding: 1, resource: outEdgeTexture.createView() }
+		]
+	});
+
+	const encoder = device.createCommandEncoder({ label: 'edge power encoder' });
+	const pass = encoder.beginComputePass({
+		label: 'edge power compute pass'
 	});
 	pass.setPipeline(pipeline);
 	pass.setBindGroup(0, bindGroup);
