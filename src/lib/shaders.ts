@@ -106,7 +106,8 @@ type SharedTextures = {
 	oklabPing: GPUTexture;
 	oklabPong: GPUTexture;
 	gaussianBlurIntermediate: GPUTexture;
-	gradient: GPUTexture;
+	gradientPing: GPUTexture;
+	gradientPong: GPUTexture;
 	edgePing: GPUTexture;
 	edgePong: GPUTexture;
 	densityScoresTexture: GPUTexture;
@@ -158,6 +159,8 @@ export async function run_shader(
 	const buffers = createSharedBuffers(device, size);
 	const pipelines = createPipelines(device);
 	const gradientMaxSampler = createGradientMaxSampler(device);
+
+	// TODO: variable texture pointers to make it easier to keep track of which textures are up to date
 
 	// --- Srgb → OkLab ---
 	let startTime = performance.now();
@@ -239,7 +242,7 @@ export async function run_shader(
 		device,
 		pipelines.gaussianGradient,
 		num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
-		textures.gradient
+		textures.gradientPing
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
@@ -251,7 +254,8 @@ export async function run_shader(
 	await gradientMaxPass(
 		device,
 		pipelines.gradientMax,
-		textures.gradient,
+		textures.gradientPing,
+		textures.gradientPong,
 		textures.edgePing,
 		gradientMaxSampler,
 		size
@@ -276,7 +280,7 @@ export async function run_shader(
 		await edgeTracePass(
 			device,
 			pipelines.edgeTrace,
-			textures.gradient,
+			textures.gradientPong,
 			final_edge_texture,
 			outputTexture,
 			size
@@ -306,12 +310,12 @@ export async function run_shader(
 	console.log('Edge SVG:');
 	const svg = await textureToEdgeSvg(
 		device,
-		textures.gradient,
+		textures.gradientPong,
 		final_edge_texture,
 		size.width,
 		size.height
 	);
-	textureToSvg(device, textures.gradient, final_edge_texture, size.width, size.height);
+	textureToSvg(device, textures.gradientPong, final_edge_texture, size.width, size.height);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
@@ -385,13 +389,24 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 
 	/*
 	gradient texture:
-		x -> gradient magnitude
-		y -> theta              (in the direction of the gradient)
-		z -> 0                  (unused)
-		w -> 0                  (unused)
+		x → grad_mag        (magnitude of gradient)
+		y → theta           (direction of gradient)
+		z → subpixel_offset (in the direction of the gradient)
+		w → 0               (unused)
 	*/
-	const gradient = device.createTexture({
-		label: 'gaussian gradient output texture',
+	const gradientPing = device.createTexture({
+		label: 'gradient texture ping',
+		size: [size.width, size.height],
+		format: 'rgba16float',
+		usage:
+			GPUTextureUsage.TEXTURE_BINDING |
+			GPUTextureUsage.STORAGE_BINDING |
+			GPUTextureUsage.RENDER_ATTACHMENT |
+			GPUTextureUsage.COPY_SRC
+	});
+
+	const gradientPong = device.createTexture({
+		label: 'gradient texture pong',
 		size: [size.width, size.height],
 		format: 'rgba16float',
 		usage:
@@ -403,10 +418,10 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 
 	/*
 	edge textures:
-		x -> edge flag        (whether this pixel is part of an edge)
-		y -> subpixel_offset  (in the direction of the gradient)
-		z -> packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
-		w -> power            (number of edge connections to pixel)
+		x → edge flag        (whether this pixel is part of an edge)
+		y → 0                (unused)
+		z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+		w → power            (number of edge connections to pixel)
 	*/
 	const edgePing = device.createTexture({
 		label: 'edge tracing texture ping',
@@ -445,7 +460,8 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 		oklabPing,
 		oklabPong,
 		gaussianBlurIntermediate,
-		gradient,
+		gradientPing,
+		gradientPong,
 		edgePing,
 		edgePong,
 		densityScoresTexture
@@ -1145,7 +1161,8 @@ async function gradientMaxPass(
 	device: GPUDevice,
 	pipeline: GPUComputePipeline,
 	inGradientTexture: GPUTexture,
-	outputTexture: GPUTexture,
+	outGradientTexture: GPUTexture,
+	outEdgeTexture: GPUTexture,
 	gradientMaxSampler: GPUSampler,
 	size: ImageSize
 ): Promise<void> {
@@ -1155,7 +1172,8 @@ async function gradientMaxPass(
 		entries: [
 			{ binding: 0, resource: inGradientTexture.createView() },
 			{ binding: 1, resource: gradientMaxSampler },
-			{ binding: 2, resource: outputTexture.createView() }
+			{ binding: 2, resource: outGradientTexture.createView() },
+			{ binding: 3, resource: outEdgeTexture.createView() }
 		]
 	});
 

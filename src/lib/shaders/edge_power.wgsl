@@ -9,10 +9,10 @@ Read the big comment block in shaders.ts for a better idea on exactly how this n
 
 /*
 edge_tex:
-    x -> edge flag        (whether this pixel is part of an edge)
-    y -> subpixel_offset  (in the direction of the gradient)
-    z -> packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
-    w -> power            (number of edge connections to pixel)
+    x → edge flag        (whether this pixel is part of an edge)
+    y → 0                (unused)
+    z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+    w → power            (number of edge connections to pixel)
 */
 @group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16float, read>;
 @group(0) @binding(1) var edge_out: texture_storage_2d<rgba16float, write>;

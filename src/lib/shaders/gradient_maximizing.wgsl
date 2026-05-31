@@ -7,27 +7,36 @@ pixels along the gradient normal to see if that pixel is the maximum or not.
 
 This basically just filters the texture to be only the edge pixels
 
-TODO: update above description for when this shader actually does sub-pixel stuff
+This shader also calculates a subpixel offset amount for potential edge pixels by
+checking neighboring gradient values. The purpose is to help produce a smoother edge
+in the final result.
+
+This shader sets the following values:
+	grad_tex
+		- subpixel_offset
+	edge_tex
+		- edge flag
 */
 
 
 
 /*
-grad_tex: texture_2d<f32>
-	x -> grad_mag (magnitude of gradient)
-	y -> theta    (direction of gradient)
-    z -> 0        (unused)
-    w -> 0        (unused)
+grad_tex/out_grad_tex: texture_2d<f32>
+	x → grad_mag        (magnitude of gradient)
+	y → theta           (direction of gradient)
+	z → subpixel_offset (in the direction of the gradient)
+	w → 0               (unused)
 
-output:
-    x -> edge flag
-    y -> subpixel_offset (in the direction of the gradient)
-    z -> 0               (unused)
-    w -> 0               (unused)
+out_edge_tex:
+    x → edge flag        (whether this pixel is part of an edge)
+    y → 0                (unused)
+    z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+    w → power            (number of edge connections to pixel)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var grad_sampler: sampler;
-@group(0) @binding(2) var out_edge_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(2) var out_grad_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(3) var out_edge_tex: texture_storage_2d<rgba16float, write>;
 
 
 // TODO: move this LOW value to an external variable passed through uniforms
@@ -56,6 +65,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     // TODO: refine the node position to have the maximum not just be the center of the pixel (check neighbors to find actual maximum)
 
     if (grad_mag < LOW) {
+    	textureStore(out_grad_tex, texel, grad_pixel);
         textureStore(out_edge_tex, texel, vec4f(0, 0, 0, 0));
         return;
     }
@@ -79,19 +89,21 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     // TODO: might be worth it to move subpixel shifting to the edge tracing steps to improve performance
+    // save subpixel offset in grad_tex
     let subpixel_offset = get_subpixel_offset(grad_pixel, texel, dims);
+    textureStore(out_grad_tex, texel, vec4f(grad_pixel.xy, subpixel_offset, grad_pixel.w));
     // let subpixel_offset = 0f;
 
     // TODO: rename greatest to prevent confusion with greatest self vs greatest neighbor
     // --- Marking Edge Seeds ---
     if (greatest) {
         // mark this pixel as part of an edge
-        textureStore(out_edge_tex, texel, vec4f(1, subpixel_offset, 0, 0));
+        textureStore(out_edge_tex, texel, vec4f(1, 0, 0, 0));
         return;
     }
 
     // these pixels might later be part of an edge, so their magnitude and theta need to be stored
-    textureStore(out_edge_tex, texel, vec4f(0, subpixel_offset, 0, 0));
+    textureStore(out_edge_tex, texel, vec4f(0));
 }
 
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {

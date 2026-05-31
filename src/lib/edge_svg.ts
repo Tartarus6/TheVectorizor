@@ -2,11 +2,6 @@
  ? This code is mostly LLM-written, and is just for testing. it will not be the final thing.
  ? The final code will probably be written for WASM so that it can be a lot faster.
  * What this file does is take in a specially formatted texture, and turn it into an SVG.
- * Format:
-    r -> edge_flag
-    g -> grad_mag
-    b -> theta
-    a -> subpixel_offset
 */
 
 type EdgePoint = {
@@ -116,7 +111,7 @@ function edgeTextureToPaths(
 		if (edgeFlag > 0.5) {
 			edgeMask[index] = 1;
 			thetaValues[index] = grad_data[base + 1];
-			subpixelOffsetValues[index] = edge_data[base + 1];
+			subpixelOffsetValues[index] = grad_data[base + 2];
 			packedNeighbors[index] = edge_data[base + 2];
 			powerValues[index] = edge_data[base + 3];
 		}

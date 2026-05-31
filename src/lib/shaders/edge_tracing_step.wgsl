@@ -6,22 +6,20 @@ texture. For each pixel in the gradient texture, this shader looks at the neighb
 pixels along the gradient normal to see if that pixel is the maximum or not.
 
 This basically just filters the texture to be only the edge pixels
-
-TODO: update above description to actually explain what subpixel stuff it does and how
 */
 
 /*
 grad_tex: texture_2d<f32>
-	x -> grad_mag (magnitude of gradient)
-	y -> theta    (direction of gradient)
-    z -> 0        (unused)
-    w -> 0        (unused)
+	x → grad_mag        (magnitude of gradient)
+	y → theta           (direction of gradient)
+	z → subpixel_offset (in the direction of the gradient)
+	w → 0               (unused)
 
 in_edge_tex/out_edge_tex:
-    x -> edge flag        (whether this pixel is part of an edge)
-    y -> subpixel_offset  (in the direction of the gradient)
-    z -> packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
-    w -> power            (number of edge connections to pixel)
+    x → edge flag        (whether this pixel is part of an edge)
+    y → 0                (unused)
+    z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+    w → power            (number of edge connections to pixel)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var in_edge_tex: texture_2d<f32>;

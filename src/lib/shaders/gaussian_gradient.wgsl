@@ -38,10 +38,10 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 /*
 output: texture_2d<f32>
-	x -> grad_mag (magnitude of gradient)
-	y -> theta    (direction of gradient)
-    z -> 0        (unused)
-    w -> 0        (unused)
+	x → grad_mag (magnitude of gradient)
+	y → theta    (direction of gradient)
+	z → 0        (unused)
+	w → 0        (unused)
 */
 
 
