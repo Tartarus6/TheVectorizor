@@ -18,7 +18,7 @@ grad_tex: texture_2d<f32>
 in_edge_tex/out_edge_tex (rgba16uint):
     x → edge flag        (whether this pixel is part of an edge)
     y → 0                (unused)
-    z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+    z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
     w → power            (number of edge connections to pixel)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;

@@ -7,7 +7,7 @@ import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
 import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
-import edge_power_shader from '$lib/shaders/edge_power.wgsl?raw';
+import reciprocating_neighbors_shader from '$lib/shaders/reciprocating_neighbors.wgsl?raw';
 import edge_visualization_shader from '$lib/shaders/edge_visualization.wgsl?raw';
 import { textureToEdgeSvg } from '$lib/edge_svg';
 import { textureToSvg } from '$lib/edge_svg_2';
@@ -132,7 +132,7 @@ type Pipelines = {
 	gaussianGradient: GPURenderPipeline;
 	gradientMax: GPUComputePipeline;
 	edgeTrace: GPUComputePipeline;
-	edgePower: GPUComputePipeline;
+	reciprocatingNeighbors: GPUComputePipeline;
 	edgeVisualization: GPURenderPipeline;
 };
 
@@ -293,15 +293,20 @@ export async function run_shader(
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
-	// --- Edge Power ---
-	// TODO: should this be removed?
+	// --- Reciprocating Neighbors ---
 	startTime = performance.now();
 	console.log();
 	console.log('Edge Power:');
-	const edgePowerOutput =
+	const reciprocatingNeighborsOutput =
 		final_edge_texture === textures.edgePing ? textures.edgePong : textures.edgePing;
-	await edgePowerPass(device, pipelines.edgePower, final_edge_texture, edgePowerOutput, size);
-	final_edge_texture = edgePowerOutput;
+	await edgePowerPass(
+		device,
+		pipelines.reciprocatingNeighbors,
+		final_edge_texture,
+		reciprocatingNeighborsOutput,
+		size
+	);
+	final_edge_texture = reciprocatingNeighborsOutput;
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
@@ -422,7 +427,7 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 	edge textures (rgba16uint):
 		x → edge flag        (whether this pixel is part of an edge)
 		y → 0                (unused)
-		z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
+		z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
 		w → power            (number of edge connections to pixel)
 	*/
 	const edgePing = device.createTexture({
@@ -680,15 +685,15 @@ function createPipelines(device: GPUDevice): Pipelines {
 		}
 	});
 
-	const edgePowerModule = device.createShaderModule({
-		label: 'edge power module',
-		code: edge_power_shader
+	const reciprocatingNeighborsModule = device.createShaderModule({
+		label: 'reciprocating neighbors module',
+		code: reciprocating_neighbors_shader
 	});
-	const edgePower = device.createComputePipeline({
-		label: 'edge power compute pipeline',
+	const reciprocatingNeighbors = device.createComputePipeline({
+		label: 'reciprocating neighbors compute pipeline',
 		layout: 'auto',
 		compute: {
-			module: edgePowerModule,
+			module: reciprocatingNeighborsModule,
 			entryPoint: 'cs_main'
 		}
 	});
@@ -726,7 +731,7 @@ function createPipelines(device: GPUDevice): Pipelines {
 		gaussianGradient,
 		gradientMax,
 		edgeTrace,
-		edgePower,
+		reciprocatingNeighbors,
 		edgeVisualization
 	};
 }

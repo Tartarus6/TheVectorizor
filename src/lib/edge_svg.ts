@@ -146,7 +146,6 @@ function edgeTextureToPaths(
 	const thetaValues = new Float32Array(pixelCount);
 	const subpixelOffsetValues = new Float32Array(pixelCount);
 	const packedNeighbors = new Uint32Array(pixelCount);
-	const powerValues = new Uint32Array(pixelCount);
 
 	for (let index = 0; index < pixelCount; index += 1) {
 		const base = index * 4;
@@ -158,7 +157,6 @@ function edgeTextureToPaths(
 			thetaValues[index] = grad_data[base + 1];
 			subpixelOffsetValues[index] = grad_data[base + 2];
 			packedNeighbors[index] = edge_data[base + 2];
-			powerValues[index] = edge_data[base + 3];
 		}
 	}
 

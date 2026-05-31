@@ -1,18 +1,19 @@
 /*
 This shader runs after all of the edges have been traced.
 
-This shader counts how many edges point to it, which I'm calling that edge pixel's "power".
+This shader finds one-way connections between pixels and fixes them by making them two-way.
 
-This number is used later to identify "hub" pixels in order to prevent gaps in the corners between shapes.
-Read the big comment block in shaders.ts for a better idea on exactly how this number will be used and why.
+A pixel at some kind of intersection may have more than 2 neighbors, but the edge_tracing only
+handles 2 neighbors per pixel. So this pass fixes that by finding unreciprocated neighbor connections
+and adding a connection to the "hub" pixel that's in the intersection.
 */
 
 /*
 edge_tex (rgba16uint):
     x → edge flag        (whether this pixel is part of an edge)
     y → 0                (unused)
-    z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
-    w → power            (number of edge connections to pixel)
+    z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
+    w → 0                (unused)
 */
 @group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16uint, read>;
 @group(0) @binding(1) var edge_out: texture_storage_2d<rgba16uint, write>;
@@ -35,7 +36,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let edge_flag = in_edge_pix.x;
     let packed_connections = in_edge_pix.z;
 
-    var power: u32 = 0u; // counter for this pixel's power
     var updated_packed: u32 = packed_connections;
 
     for (var dx: i32 = -1; dx <= 1; dx++) {
@@ -65,15 +65,14 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
                 }
             }
 
-            // if neighbor points to this pixel, add that to this pixel's power and add it to this pixel's neighbors
+            // if neighbor points to this pixel, add it to this pixel's neighbors
             if (neighbor_points_to_this) {
-                power++;
                 updated_packed = updated_packed | (1u << offset_to_direction(offset));
             }
         }
     }
 
-    textureStore(edge_out, texel, vec4u(in_edge_pix.xy, updated_packed, power));
+    textureStore(edge_out, texel, vec4u(in_edge_pix.xy, updated_packed, in_edge_pix.w));
 }
 
 
