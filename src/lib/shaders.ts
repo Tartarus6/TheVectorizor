@@ -9,6 +9,7 @@ import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
 import edge_power_shader from '$lib/shaders/edge_power.wgsl?raw';
 import { textureToEdgeSvg } from '$lib/edge_svg';
+import { textureToSvg } from '$lib/edge_svg_2';
 
 /*
 Idea for turning edges into shapes:
@@ -127,7 +128,7 @@ type Pipelines = {
 	gaussianBlurH: GPURenderPipeline;
 	gaussianBlurV: GPURenderPipeline;
 	gaussianGradient: GPURenderPipeline;
-	gradientMax: GPURenderPipeline;
+	gradientMax: GPUComputePipeline;
 	edgeTrace: GPUComputePipeline;
 	edgePower: GPUComputePipeline;
 };
@@ -142,6 +143,7 @@ export async function run_shader(
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
 ): Promise<[boolean, string]> {
+	// -- Setup ---
 	console.log('starting mean shift cluster step WGPU');
 	const device = await requestDevice();
 
@@ -157,6 +159,7 @@ export async function run_shader(
 	const pipelines = createPipelines(device);
 	const gradientMaxSampler = createGradientMaxSampler(device);
 
+	// --- Srgb → OkLab ---
 	let startTime = performance.now();
 	console.log();
 	console.log('Srgb -> OkLab:');
@@ -170,6 +173,7 @@ export async function run_shader(
 	let endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// --- Blur ---
 	startTime = performance.now();
 	console.log();
 	console.log('Pre-cluster Blur:');
@@ -184,6 +188,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// --- Mean Shift Cluster Steps ---
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
 		startTime = performance.now();
 
@@ -226,6 +231,7 @@ export async function run_shader(
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
+	// --- Gaussian Gradient ---
 	startTime = performance.now();
 	console.log();
 	console.log('GaussGradient:');
@@ -238,6 +244,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// --- Gradient Maximizing (Edge Seeding) ---
 	startTime = performance.now();
 	console.log();
 	console.log('Gradient Max:');
@@ -246,11 +253,13 @@ export async function run_shader(
 		pipelines.gradientMax,
 		textures.gradient,
 		textures.edgePing,
-		gradientMaxSampler
+		gradientMaxSampler,
+		size
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// --- Edge Tracing Steps ---
 	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
 	let final_edge_texture = textures.edgePing;
 	for (
@@ -278,6 +287,8 @@ export async function run_shader(
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
 
+	// --- Edge Power ---
+	// TODO: should this be removed?
 	startTime = performance.now();
 	console.log();
 	console.log('Edge Power:');
@@ -288,6 +299,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// --- Svg Creation ---
 	// TODO: the svg implementation below is not final. it's just for testing.
 	startTime = performance.now();
 	console.log();
@@ -299,9 +311,11 @@ export async function run_shader(
 		size.width,
 		size.height
 	);
+	textureToSvg(device, textures.gradient, final_edge_texture, size.width, size.height);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// -- OkLab → Srgb (just for visualization)
 	await oklabToSrgbPass(
 		device,
 		pipelines.oklabToSrgb,
@@ -310,6 +324,7 @@ export async function run_shader(
 		clusterCanvas
 	);
 
+	// -- OkLab → Srgb (just for visualization)
 	await oklabToSrgbPass(device, pipelines.oklabToSrgb, final_edge_texture, false, edgeCanvas);
 
 	return [true, svg];
@@ -627,21 +642,12 @@ function createPipelines(device: GPUDevice): Pipelines {
 		label: 'gradient max module',
 		code: gradient_max_shader
 	});
-	const gradientMax = device.createRenderPipeline({
-		label: 'gradient max pipeline',
+	const gradientMax = device.createComputePipeline({
+		label: 'gradient max compute pipeline',
 		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gradientMaxModule
-		},
-		fragment: {
-			entryPoint: 'cs_main',
+		compute: {
 			module: gradientMaxModule,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
+			entryPoint: 'cs_main'
 		}
 	});
 
@@ -1137,35 +1143,29 @@ async function gaussianGradientPass(
 
 async function gradientMaxPass(
 	device: GPUDevice,
-	pipeline: GPURenderPipeline,
+	pipeline: GPUComputePipeline,
 	inGradientTexture: GPUTexture,
 	outputTexture: GPUTexture,
-	gradientMaxSampler: GPUSampler
+	gradientMaxSampler: GPUSampler,
+	size: ImageSize
 ): Promise<void> {
 	const bindGroup = device.createBindGroup({
 		label: 'gradient max bind group',
 		layout: pipeline.getBindGroupLayout(0),
 		entries: [
 			{ binding: 0, resource: inGradientTexture.createView() },
-			{ binding: 1, resource: gradientMaxSampler }
+			{ binding: 1, resource: gradientMaxSampler },
+			{ binding: 2, resource: outputTexture.createView() }
 		]
 	});
 
 	const encoder = device.createCommandEncoder({ label: 'gradient max encoder' });
-	const pass = encoder.beginRenderPass({
-		label: 'gradient max render pass',
-		colorAttachments: [
-			{
-				view: outputTexture.createView(),
-				clearValue: [0, 0, 0, 0],
-				loadOp: 'clear',
-				storeOp: 'store'
-			}
-		]
+	const pass = encoder.beginComputePass({
+		label: 'gradient max compute pass'
 	});
 	pass.setPipeline(pipeline);
 	pass.setBindGroup(0, bindGroup);
-	pass.draw(3);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
 	pass.end();
 
 	device.queue.submit([encoder.finish()]);

@@ -10,32 +10,6 @@ This basically just filters the texture to be only the edge pixels
 TODO: update above description for when this shader actually does sub-pixel stuff
 */
 
-struct VsOut {
-    @builtin(position) pos: vec4f,
-    @location(0) uv: vec2f,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
-    // Fullscreen triangle
-    var pos = array<vec2f, 3>(
-        vec2f(-1.0, -1.0),
-        vec2f(3.0, -1.0),
-        vec2f(-1.0, 3.0),
-    );
-
-    // UVs (can go outside 0..1; we clamp later)
-    var uv = array<vec2f, 3>(
-        vec2f(0.0, 1.0),
-        vec2f(2.0, 1.0),
-        vec2f(0.0, -1.0),
-    );
-
-    var out: VsOut;
-    out.pos = vec4f(pos[vid], 0.0, 1.0);
-    out.uv = uv[vid];
-    return out;
-}
 
 
 /*
@@ -53,23 +27,23 @@ output:
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var grad_sampler: sampler;
+@group(0) @binding(2) var out_edge_tex: texture_storage_2d<rgba16float, write>;
 
 
 // TODO: move this LOW value to an external variable passed through uniforms
 const LOW: f32 = 0.1;
 
 
-@fragment
-fn cs_main(in: VsOut) -> @location(0) vec4f {
-    // Clamp UV to avoid sampling outside (because our fullscreen triangle uses UV beyond 0..1)
-    let uv = clamp(in.uv, vec2f(0.0), vec2f(1.0));
-
+@compute @workgroup_size(16, 16)
+fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let dims = textureDimensions(grad_tex);
 
-    let texel = vec2u(
-        min(u32(uv.x * f32(dims.x)), dims.x - 1u),
-        min(u32(uv.y * f32(dims.y)), dims.y - 1u)
-    );
+    if (gid.x >= dims.x || gid.y >= dims.y) {
+        return;
+    }
+
+    let texel = gid.xy;
+    let uv = (vec2f(texel) + vec2f(0.5, 0.5)) / vec2f(dims);
 
     // TODO: might want to switch below to just use textureLoad
     // Sample with linear filtering to allow sub-pixel neighborhood checks.
@@ -82,7 +56,8 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     // TODO: refine the node position to have the maximum not just be the center of the pixel (check neighbors to find actual maximum)
 
     if (grad_mag < LOW) {
-        return vec4f(0, 0, 0, 0);
+        textureStore(out_edge_tex, texel, vec4f(0, 0, 0, 0));
+        return;
     }
 
     // --- Finding Edge Seed Pixels ---
@@ -95,7 +70,6 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
 
             let neighbor_pix = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(dx, dy), vec2i(0), vec2i(dims) - vec2i(1)), 0);
             let neighbor_grad_mag = neighbor_pix.x;
-            let neighbor_theta = neighbor_pix.y;
 
             // if the neighbor has a greater magnitude, then our pixel isn't the greatest
             if (grad_mag <= neighbor_grad_mag) {
@@ -112,11 +86,12 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     // --- Marking Edge Seeds ---
     if (greatest) {
         // mark this pixel as part of an edge
-        return vec4f(1, subpixel_offset, 0, 0);
+        textureStore(out_edge_tex, texel, vec4f(1, subpixel_offset, 0, 0));
+        return;
     }
 
     // these pixels might later be part of an edge, so their magnitude and theta need to be stored
-    return vec4f(0, subpixel_offset, 0, 0);
+    textureStore(out_edge_tex, texel, vec4f(0, subpixel_offset, 0, 0));
 }
 
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
@@ -154,7 +129,6 @@ fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
 
         let neighbor_pix = textureSampleLevel(grad_tex, grad_sampler, neighbor_pos_uv, 0.0);
         let neighbor_grad_mag = neighbor_pix.x;
-        let neighbor_theta = neighbor_pix.y;
 
         // TODO: figure out how to weight it so that neighbors who's gradient alligns better are weighted higher than missaligned neighbors
         let weight = neighbor_grad_mag;
