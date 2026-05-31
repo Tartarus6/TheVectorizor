@@ -17,6 +17,8 @@ edge_tex (rgba16uint):
 @group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16uint, read>;
 @group(0) @binding(1) var edge_out: texture_storage_2d<rgba16uint, write>;
 
+const MAX_NEIGHBORS: u32 = 8u; // maximum packed neighbors (one per 8-connected direction)
+
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let dims = textureDimensions(edge_tex);
@@ -34,9 +36,14 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let packed_connections = in_edge_pix.z;
 
     var power: u32 = 0u; // counter for this pixel's power
+    var updated_packed: u32 = packed_connections;
 
     for (var dx: i32 = -1; dx <= 1; dx++) {
         for (var dy: i32 = -1; dy <= 1; dy++) {
+            if (dx == 0 && dy == 0) {
+                continue;
+            }
+
             let offset = vec2i(dx, dy);
 
             let pos: vec2i = vec2i(texel) + offset;
@@ -48,19 +55,25 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
             let neighbor_pix = textureLoad(edge_tex, pos);
 
-            let neighbot_neighbors = unpack_neighbors(neighbor_pix.z);
+            let neighbor_neighbors = unpack_neighbors(neighbor_pix.z);
+            var neighbor_points_to_this = false;
 
-            let neighbor_neighbor_a = vec2i(neighbot_neighbors.xy);
-            let neighbor_neighbor_b = vec2i(neighbot_neighbors.zw);
+            for (var i: u32 = 0u; i < neighbor_neighbors.count; i = i + 1u) {
+                if (all(neighbor_neighbors.neighbors[i] * -1 == offset)) {
+                    neighbor_points_to_this = true;
+                    break;
+                }
+            }
 
-            // if neighbor points to this pixel, add that to this pixel's power
-            if (all(neighbor_neighbor_a * -1 == offset) || all(neighbor_neighbor_b * -1 == offset)) {
+            // if neighbor points to this pixel, add that to this pixel's power and add it to this pixel's neighbors
+            if (neighbor_points_to_this) {
                 power++;
+                updated_packed = updated_packed | (1u << offset_to_direction(offset));
             }
         }
     }
 
-    textureStore(edge_out, texel, vec4u(in_edge_pix.xyz, power));
+    textureStore(edge_out, texel, vec4u(in_edge_pix.xy, updated_packed, power));
 }
 
 
@@ -78,46 +91,58 @@ const DIRS: array<vec2i, 8> = array<vec2i, 8>(
 );
 
 /*
-Packs the position deltas of 2 neighbors into one float for storing in the texture
+Function that packs the position deltas of two neighbors into one uint for storing in the texture
 
-Note: the order of the 2 neighbors does not matter.
+Note: the order of the neighbors does not matter.
 
 Input: (dx A, dy A, dx B, dy B)
 Example:
 	□ · ·
-	· ■ ·   →   Input is (-1, -1, 1, 1)   →   Output is
+	· ■ ·   →   Input is [(-1, -1), (1, 1)]   →   Output is 2³ + 2⁷   →   10001000 (binary)   →   136 (decimal)
 	· · □
 
 	· □ ·
-	· ■ □   →   Input is (0, -1, 1, 0)   →   Output is
-	· · ·
+	· ■ □   →   Input is [(0, -1), (1, 0), (-1, 1)]   →   Output is 2² + 2⁰ + 2⁵   →   00100101 (binary)   →   37 (decimal)
+	□ · ·
+
 */
-fn pack_neighbors(neighbors: vec4i) -> u32 {
-	// get individual (dx, dy) offsets
-	let offset_a: vec2i = vec2i(neighbors.xy);
-	let offset_b: vec2i = vec2i(neighbors.zw);
+fn pack_neighbors(neighbors: array<vec2i, MAX_NEIGHBORS>, neighbor_count: u32) -> u32 {
+    // pack up to MAX_NEIGHBORS offsets into a direction bitmask
+    var packed: u32 = 0u;
+    let count = min(neighbor_count, MAX_NEIGHBORS);
 
-	// turn (dx, dy) offsets into direction indeces (0..7)
-	let dir_a: u32 = offset_to_direction(offset_a);
-	let dir_b: u32 = offset_to_direction(offset_b);
+    for (var i: u32 = 0u; i < count; i = i + 1u) {
+        let dir: u32 = offset_to_direction(neighbors[i]);
+        packed = packed | (1u << dir);
+    }
 
-	// pack the direction indeces together (0..7) → (0..63)
-	let packed = dir_a + 8u * dir_b;
-
-	return packed;
+    return packed;
 }
 
+struct UnpackedNeighbors {
+    neighbors: array<vec2i, MAX_NEIGHBORS>,
+    count: u32,
+};
 
-fn unpack_neighbors(packed_neighbors: u32) -> vec4i {
-	// unpack 0..63 into two 0..7 direction indeces
-	let dir_a: u32 = packed_neighbors % 8u;
-	let dir_b: u32 = packed_neighbors / 8u;
+fn unpack_neighbors(packed_neighbors: u32) -> UnpackedNeighbors {
+    var result = UnpackedNeighbors(
+        array<vec2i, MAX_NEIGHBORS>(
+            vec2i(0), vec2i(0), vec2i(0), vec2i(0),
+            vec2i(0), vec2i(0), vec2i(0), vec2i(0)
+        ),
+        0u
+    );
 
-	// convert direction indeces (0..7) into offsets
-	let offset_a: vec2i = DIRS[dir_a];
-	let offset_b: vec2i = DIRS[dir_b];
+    for (var i: u32 = 0u; i < 8u; i = i + 1u) {
+        if ((packed_neighbors & (1u << i)) != 0u) {
+            if (result.count < MAX_NEIGHBORS) {
+                result.neighbors[result.count] = DIRS[i];
+                result.count = result.count + 1u;
+            }
+        }
+    }
 
-	return vec4i(offset_a, offset_b);
+    return result;
 }
 
 /*
