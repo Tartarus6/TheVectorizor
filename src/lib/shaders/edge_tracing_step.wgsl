@@ -158,6 +158,7 @@ fn get_section(theta: f32, section_count: u32) -> u32 {
     return section;
 }
 
+// TODO: remove this code duplication if possible. maybe there's a way to shader this const and functions between shaders, idk.
 // Used for packing and unpacking neighbor offsets
 // Direction order: E, NE, N, NW, W, SW, S, SE
 const DIRS: array<vec2i, 8> = array<vec2i, 8>(

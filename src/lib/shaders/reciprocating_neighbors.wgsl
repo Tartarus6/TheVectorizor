@@ -36,16 +36,16 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let edge_flag = in_edge_pix.x;
     let packed_connections = in_edge_pix.z;
 
-    var updated_packed: u32 = packed_connections;
+    var updated_packed: u32 = packed_connections; // variable to store new packed conenctions
 
-    for (var dx: i32 = -1; dx <= 1; dx++) {
-        for (var dy: i32 = -1; dy <= 1; dy++) {
+    for (var dx: i32 = -1; dx <= 1; dx++) { // for dx
+        for (var dy: i32 = -1; dy <= 1; dy++) { // for dy
+        	// skip self pixel
             if (dx == 0 && dy == 0) {
                 continue;
             }
 
             let offset = vec2i(dx, dy);
-
             let pos: vec2i = vec2i(texel) + offset;
 
             // ignore pixels outside the texture
@@ -58,6 +58,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
             let neighbor_neighbors = unpack_neighbors(neighbor_pix.z);
             var neighbor_points_to_this = false;
 
+            // for this neighbor, look at each of its neighbors to see if self is one of them
             for (var i: u32 = 0u; i < neighbor_neighbors.count; i = i + 1u) {
                 if (all(neighbor_neighbors.neighbors[i] * -1 == offset)) {
                     neighbor_points_to_this = true;
@@ -75,7 +76,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     textureStore(edge_out, texel, vec4u(in_edge_pix.xy, updated_packed, in_edge_pix.w));
 }
 
-
+// TODO: remove this code duplication if possible. maybe there's a way to shader this const and functions between shaders, idk.
 // Used for packing and unpacking neighbor offsets
 // Direction order: E, NE, N, NW, W, SW, S, SE
 const DIRS: array<vec2i, 8> = array<vec2i, 8>(
