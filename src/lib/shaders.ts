@@ -8,6 +8,7 @@ import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
 import edge_power_shader from '$lib/shaders/edge_power.wgsl?raw';
+import edge_visualization_shader from '$lib/shaders/edge_visualization.wgsl?raw';
 import { textureToEdgeSvg } from '$lib/edge_svg';
 import { textureToSvg } from '$lib/edge_svg_2';
 
@@ -132,6 +133,7 @@ type Pipelines = {
 	gradientMax: GPUComputePipeline;
 	edgeTrace: GPUComputePipeline;
 	edgePower: GPUComputePipeline;
+	edgeVisualization: GPURenderPipeline;
 };
 
 export async function run_shader(
@@ -328,8 +330,8 @@ export async function run_shader(
 		clusterCanvas
 	);
 
-	// -- OkLab → Srgb (just for visualization)
-	await oklabToSrgbPass(device, pipelines.oklabToSrgb, final_edge_texture, false, edgeCanvas);
+	// -- Edge Visualization
+	await edgeVisualizationPass(device, pipelines.edgeVisualization, final_edge_texture, edgeCanvas);
 
 	return [true, svg];
 }
@@ -417,7 +419,7 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 	});
 
 	/*
-	edge textures:
+	edge textures (rgba16uint):
 		x → edge flag        (whether this pixel is part of an edge)
 		y → 0                (unused)
 		z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
@@ -426,25 +428,23 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 	const edgePing = device.createTexture({
 		label: 'edge tracing texture ping',
 		size: [size.width, size.height],
-		format: 'rgba16float',
+		format: 'rgba16uint',
 		usage:
 			GPUTextureUsage.TEXTURE_BINDING |
 			GPUTextureUsage.STORAGE_BINDING |
 			GPUTextureUsage.COPY_SRC |
-			GPUTextureUsage.COPY_DST |
-			GPUTextureUsage.RENDER_ATTACHMENT
+			GPUTextureUsage.COPY_DST
 	});
 
 	const edgePong = device.createTexture({
 		label: 'edge tracing texture pong',
 		size: [size.width, size.height],
-		format: 'rgba16float',
+		format: 'rgba16uint',
 		usage:
 			GPUTextureUsage.TEXTURE_BINDING |
 			GPUTextureUsage.STORAGE_BINDING |
 			GPUTextureUsage.COPY_SRC |
-			GPUTextureUsage.COPY_DST |
-			GPUTextureUsage.RENDER_ATTACHMENT
+			GPUTextureUsage.COPY_DST
 	});
 
 	const densityScoresTexture = device.createTexture({
@@ -693,6 +693,28 @@ function createPipelines(device: GPUDevice): Pipelines {
 		}
 	});
 
+	const edgeVisualizationModule = device.createShaderModule({
+		label: 'edge visualization module',
+		code: edge_visualization_shader
+	});
+	const edgeVisualization = device.createRenderPipeline({
+		label: 'edge visualization render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: edgeVisualizationModule
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: edgeVisualizationModule,
+			targets: [
+				{
+					format: canvas_format
+				}
+			]
+		}
+	});
+
 	return {
 		srgbToOklab,
 		oklabToSrgb,
@@ -704,7 +726,8 @@ function createPipelines(device: GPUDevice): Pipelines {
 		gaussianGradient,
 		gradientMax,
 		edgeTrace,
-		edgePower
+		edgePower,
+		edgeVisualization
 	};
 }
 
@@ -1229,6 +1252,46 @@ async function edgeTracePass(
 	pass.setPipeline(pipeline);
 	pass.setBindGroup(0, bindGroup);
 	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
+
+	device.queue.submit([encoder.finish()]);
+}
+
+async function edgeVisualizationPass(
+	device: GPUDevice,
+	pipeline: GPURenderPipeline,
+	edgeTexture: GPUTexture,
+	context: GPUCanvasContext
+): Promise<void> {
+	const bindGroup = device.createBindGroup({
+		label: 'edge visualization bind group',
+		layout: pipeline.getBindGroupLayout(0),
+		entries: [{ binding: 0, resource: edgeTexture.createView() }]
+	});
+
+	context.configure({
+		device,
+		format: canvas_format
+	});
+
+	const renderPassDescriptor: GPURenderPassDescriptor = {
+		label: 'edge visualization render pass',
+		colorAttachments: [
+			{
+				view: context.getCurrentTexture().createView(),
+				clearValue: [0, 0, 0, 0],
+				loadOp: 'clear',
+				storeOp: 'store'
+			}
+		]
+	};
+
+	const encoder = device.createCommandEncoder({ label: 'edge visualization encoder' });
+
+	const pass = encoder.beginRenderPass(renderPassDescriptor);
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.draw(3);
 	pass.end();
 
 	device.queue.submit([encoder.finish()]);

@@ -8,14 +8,14 @@ Read the big comment block in shaders.ts for a better idea on exactly how this n
 */
 
 /*
-edge_tex:
+edge_tex (rgba16uint):
     x → edge flag        (whether this pixel is part of an edge)
     y → 0                (unused)
     z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
     w → power            (number of edge connections to pixel)
 */
-@group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16float, read>;
-@group(0) @binding(1) var edge_out: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16uint, read>;
+@group(0) @binding(1) var edge_out: texture_storage_2d<rgba16uint, write>;
 
 @compute @workgroup_size(16, 16)
 fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
@@ -33,7 +33,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let edge_flag = in_edge_pix.x;
     let packed_connections = in_edge_pix.z;
 
-    var power: u32 = 0; // counter for this pixel's power
+    var power: u32 = 0u; // counter for this pixel's power
 
     for (var dx: i32 = -1; dx <= 1; dx++) {
         for (var dy: i32 = -1; dy <= 1; dy++) {
@@ -60,7 +60,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
-    textureStore(edge_out, texel, vec4f(in_edge_pix.xyz, f32(power)));
+    textureStore(edge_out, texel, vec4u(in_edge_pix.xyz, power));
 }
 
 
@@ -92,8 +92,7 @@ Example:
 	· ■ □   →   Input is (0, -1, 1, 0)   →   Output is
 	· · ·
 */
-// TODO: would be better if this could be switched to returning an unsigned int, would have to change the texture setup though
-fn pack_neighbors(neighbors: vec4i) -> f32 {
+fn pack_neighbors(neighbors: vec4i) -> u32 {
 	// get individual (dx, dy) offsets
 	let offset_a: vec2i = vec2i(neighbors.xy);
 	let offset_b: vec2i = vec2i(neighbors.zw);
@@ -105,17 +104,14 @@ fn pack_neighbors(neighbors: vec4i) -> f32 {
 	// pack the direction indeces together (0..7) → (0..63)
 	let packed = dir_a + 8u * dir_b;
 
-	return f32(packed);
+	return packed;
 }
 
 
-fn unpack_neighbors(packed_neighbors: f32) -> vec4i {
-	// convert to integer
-	let packed = u32(packed_neighbors);
-
+fn unpack_neighbors(packed_neighbors: u32) -> vec4i {
 	// unpack 0..63 into two 0..7 direction indeces
-	let dir_a: u32 = packed % 8u;
-	let dir_b: u32 = packed / 8u;
+	let dir_a: u32 = packed_neighbors % 8u;
+	let dir_b: u32 = packed_neighbors / 8u;
 
 	// convert direction indeces (0..7) into offsets
 	let offset_a: vec2i = DIRS[dir_a];

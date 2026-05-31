@@ -15,15 +15,15 @@ grad_tex: texture_2d<f32>
 	z → subpixel_offset (in the direction of the gradient)
 	w → 0               (unused)
 
-in_edge_tex/out_edge_tex:
+in_edge_tex/out_edge_tex (rgba16uint):
     x → edge flag        (whether this pixel is part of an edge)
     y → 0                (unused)
     z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
     w → power            (number of edge connections to pixel)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
-@group(0) @binding(1) var in_edge_tex: texture_2d<f32>;
-@group(0) @binding(2) var out_edge_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(1) var in_edge_tex: texture_2d<u32>;
+@group(0) @binding(2) var out_edge_tex: texture_storage_2d<rgba16uint, write>;
 
 
 const PI = 3.1415926535;
@@ -50,14 +50,14 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
     // if pixel already has connections, then skip it
     // note: a packed connections value of 0 is not possible since that'd mean both chosen candidates are the same. so that can be used to ignore
-    if (packed_connections != 0) {
+    if (packed_connections != 0u) {
     	return;
     }
 
     // TODO: might be able to save these texture stores with some initial copying or something
     // textureStore(out_edge_tex, texel, in_pixel);
 
-    if (edge_flag == 0f) {
+    if (edge_flag == 0u) {
         return;
     }
 
@@ -86,7 +86,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
     // check for followup edge pixel along theta forwards and also backwards
     for (var flip_mult = -1; flip_mult <= 1; flip_mult += 2) {
-    	var best_edge_pix = vec4f(-1); // default, should be overwritten
+    	var best_edge_pix = vec4u(0u); // default, should be overwritten
         var best_pix_grad_mag = -1f;   // default, should be overwritten
         var best_pos = vec2u(0);       // default, should be overwritten
 
@@ -101,7 +101,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
             let cand_edge_flag = cand_edge_pix.x;
 
             // if candidate is already part of an edge, just pick that one immediately
-            if (cand_edge_flag != 0) {
+            if (cand_edge_flag != 0u) {
                 best_edge_pix = cand_edge_pix;
                 best_pix_grad_mag = cand_grad_mag;
                 best_pos = pos;
@@ -120,7 +120,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         // if chosen candidate wasn't already marked as an edge
         if !found_edge_connection {
 	        // write best candidate as an edge
-	        textureStore(out_edge_tex, best_pos, vec4f(1, best_edge_pix.yzw));
+	        textureStore(out_edge_tex, best_pos, vec4u(1u, best_edge_pix.yzw));
 		}
 
 		// TODO: probably should rewrite this to something more robust
@@ -135,8 +135,8 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     // pack candidate offsets and save it into current pixel
-    let packed: f32 = pack_neighbors(candidate_offsets);
-    textureStore(out_edge_tex, texel, vec4f(in_edge_pix.xy, packed, in_edge_pix.w));
+    let packed: u32 = pack_neighbors(candidate_offsets);
+    textureStore(out_edge_tex, texel, vec4u(in_edge_pix.xy, packed, in_edge_pix.w));
 }
 
 fn get_section(theta: f32, section_count: u32) -> u32 {
@@ -185,8 +185,7 @@ Example:
 	· ■ □   →   Input is (0, -1, 1, 0)   →   Output is
 	· · ·
 */
-// TODO: would be better if this could be switched to returning an unsigned int, would have to change the texture setup though
-fn pack_neighbors(neighbors: vec4i) -> f32 {
+fn pack_neighbors(neighbors: vec4i) -> u32 {
 	// get individual (dx, dy) offsets
 	let offset_a: vec2i = vec2i(neighbors.xy);
 	let offset_b: vec2i = vec2i(neighbors.zw);
@@ -198,17 +197,14 @@ fn pack_neighbors(neighbors: vec4i) -> f32 {
 	// pack the direction indeces together (0..7) → (0..63)
 	let packed = dir_a + 8u * dir_b;
 
-	return f32(packed);
+	return packed;
 }
 
 
-fn unpack_neighbors(packed_neighbors: f32) -> vec4i {
-	// convert to integer
-	let packed = u32(packed_neighbors);
-
+fn unpack_neighbors(packed_neighbors: u32) -> vec4i {
 	// unpack 0..63 into two 0..7 direction indeces
-	let dir_a: u32 = packed % 8u;
-	let dir_b: u32 = packed / 8u;
+	let dir_a: u32 = packed_neighbors % 8u;
+	let dir_b: u32 = packed_neighbors / 8u;
 
 	// convert direction indeces (0..7) into offsets
 	let offset_a: vec2i = DIRS[dir_a];

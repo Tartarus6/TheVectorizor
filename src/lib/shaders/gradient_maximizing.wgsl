@@ -27,7 +27,7 @@ grad_tex/out_grad_tex: texture_2d<f32>
 	z → subpixel_offset (in the direction of the gradient)
 	w → 0               (unused)
 
-out_edge_tex:
+out_edge_tex (rgba16uint):
     x → edge flag        (whether this pixel is part of an edge)
     y → 0                (unused)
     z → packed neighbors (0..63 value that indicates the 2 connected neighbor edges. note: value of 0 is not possible, so its safe to assume a value of 0 means it's unset)
@@ -36,7 +36,7 @@ out_edge_tex:
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var grad_sampler: sampler;
 @group(0) @binding(2) var out_grad_tex: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(3) var out_edge_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(3) var out_edge_tex: texture_storage_2d<rgba16uint, write>;
 
 
 // TODO: move this LOW value to an external variable passed through uniforms
@@ -66,7 +66,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
     if (grad_mag < LOW) {
     	textureStore(out_grad_tex, texel, grad_pixel);
-        textureStore(out_edge_tex, texel, vec4f(0, 0, 0, 0));
+        textureStore(out_edge_tex, texel, vec4u(0u, 0u, 0u, 0u));
         return;
     }
 
@@ -98,12 +98,12 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     // --- Marking Edge Seeds ---
     if (greatest) {
         // mark this pixel as part of an edge
-        textureStore(out_edge_tex, texel, vec4f(1, 0, 0, 0));
+        textureStore(out_edge_tex, texel, vec4u(1u, 0u, 0u, 0u));
         return;
     }
 
     // these pixels might later be part of an edge, so their magnitude and theta need to be stored
-    textureStore(out_edge_tex, texel, vec4f(0));
+    textureStore(out_edge_tex, texel, vec4u(0u));
 }
 
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {

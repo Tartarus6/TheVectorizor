@@ -40,7 +40,7 @@ export async function textureToEdgeSvg(
 	height: number
 ): Promise<string> {
 	const grad_data = await readRgba16FloatTexture(device, grad_tex, width, height);
-	const edge_data = await readRgba16FloatTexture(device, edge_tex, width, height);
+	const edge_data = await readRgba16UintTexture(device, edge_tex, width, height);
 	const paths = edgeTextureToPaths(grad_data, edge_data, width, height);
 	return pathsToSvg(paths, width, height);
 }
@@ -90,9 +90,54 @@ async function readRgba16FloatTexture(
 	return data;
 }
 
+async function readRgba16UintTexture(
+	device: GPUDevice,
+	texture: GPUTexture,
+	width: number,
+	height: number
+): Promise<Uint32Array> {
+	const bytesPerPixel = 8;
+	const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
+	const readbackBuffer = device.createBuffer({
+		label: 'edge svg uint readback buffer',
+		size: bytesPerRow * height,
+		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+	});
+
+	const encoder = device.createCommandEncoder({ label: 'edge svg uint readback encoder' });
+	encoder.copyTextureToBuffer(
+		{ texture },
+		{ buffer: readbackBuffer, bytesPerRow },
+		{ width, height }
+	);
+
+	device.queue.submit([encoder.finish()]);
+	await readbackBuffer.mapAsync(GPUMapMode.READ);
+
+	const mapped = new Uint8Array(readbackBuffer.getMappedRange().slice());
+	readbackBuffer.unmap();
+
+	const data = new Uint32Array(width * height * 4);
+	const view = new DataView(mapped.buffer, mapped.byteOffset, mapped.byteLength);
+
+	for (let y = 0; y < height; y += 1) {
+		const rowOffset = y * bytesPerRow;
+		for (let x = 0; x < width; x += 1) {
+			const sourceOffset = rowOffset + x * bytesPerPixel;
+			const targetOffset = (y * width + x) * 4;
+			data[targetOffset] = view.getUint16(sourceOffset, true);
+			data[targetOffset + 1] = view.getUint16(sourceOffset + 2, true);
+			data[targetOffset + 2] = view.getUint16(sourceOffset + 4, true);
+			data[targetOffset + 3] = view.getUint16(sourceOffset + 6, true);
+		}
+	}
+
+	return data;
+}
+
 function edgeTextureToPaths(
 	grad_data: Float32Array,
-	edge_data: Float32Array,
+	edge_data: Uint32Array,
 	width: number,
 	height: number
 ): EdgePath[] {
@@ -100,15 +145,15 @@ function edgeTextureToPaths(
 	const edgeMask = new Uint8Array(pixelCount);
 	const thetaValues = new Float32Array(pixelCount);
 	const subpixelOffsetValues = new Float32Array(pixelCount);
-	const packedNeighbors = new Float32Array(pixelCount);
-	const powerValues = new Float32Array(pixelCount);
+	const packedNeighbors = new Uint32Array(pixelCount);
+	const powerValues = new Uint32Array(pixelCount);
 
 	for (let index = 0; index < pixelCount; index += 1) {
 		const base = index * 4;
 		const edgeFlag = edge_data[base];
 		// const magnitude = grad_data[base];
 
-		if (edgeFlag > 0.5) {
+		if (edgeFlag > 0) {
 			edgeMask[index] = 1;
 			thetaValues[index] = grad_data[base + 1];
 			subpixelOffsetValues[index] = grad_data[base + 2];
