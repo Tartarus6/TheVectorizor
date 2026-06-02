@@ -19,17 +19,16 @@ type DirectedEdge = {
 	to: number;
 };
 
+// Direction order matches edge_tracing_step.wgsl: E, NE, N, NW, W, SW, S, SE
 const neighborOffsets = [
-	// diagonals
-	[1, 1],
-	[-1, 1],
-	[-1, -1],
-	[1, -1],
-	// cardinals
 	[1, 0],
-	[0, 1],
+	[1, -1],
+	[0, -1],
+	[-1, -1],
 	[-1, 0],
-	[0, -1]
+	[-1, 1],
+	[0, 1],
+	[1, 1]
 ];
 
 export async function textureToEdgeSvg(
@@ -165,11 +164,7 @@ function edgeTextureToPaths(
 		subpixelPoints[index] = indexToPoint(index, width, thetaValues, subpixelOffsetValues);
 	}
 
-	// Keep only the 2-core of the edge graph so dangling/open chains are removed
-	// before any closed-face tracing.
-	const cycleEdgeMask = cullOpenEdgePixels(width, height, edgeMask);
-
-	const adjacency = buildSortedAdjacency(width, height, cycleEdgeMask, subpixelPoints);
+	const adjacency = buildSortedAdjacency(width, height, edgeMask, packedNeighbors, subpixelPoints);
 	return traceClosedFaces(adjacency, subpixelPoints);
 }
 
@@ -201,6 +196,7 @@ function buildSortedAdjacency(
 	width: number,
 	height: number,
 	edgeMask: Uint8Array,
+	packedNeighbors: Uint32Array,
 	points: EdgePoint[]
 ): number[][] {
 	const pixelCount = width * height;
@@ -212,7 +208,7 @@ function buildSortedAdjacency(
 			continue;
 		}
 
-		const neighbors = getNeighborIndices(index, width, height, edgeMask);
+		const neighbors = getPackedNeighborIndices(index, width, height, edgeMask, packedNeighbors);
 		const center = points[index];
 		neighbors.sort((a, b) => {
 			const pointA = points[a];
@@ -228,64 +224,10 @@ function buildSortedAdjacency(
 	return adjacency;
 }
 
-function cullOpenEdgePixels(width: number, height: number, edgeMask: Uint8Array): Uint8Array {
-	const pixelCount = width * height;
-	const keptMask = edgeMask.slice();
-	const degree = new Uint16Array(pixelCount);
-	const neighborLists: number[][] = new Array(pixelCount);
-	const queue: number[] = [];
-
-	for (let index = 0; index < pixelCount; index += 1) {
-		if (keptMask[index] === 0) {
-			neighborLists[index] = [];
-			continue;
-		}
-
-		const neighbors = getNeighborIndices(index, width, height, keptMask);
-		neighborLists[index] = neighbors;
-		degree[index] = neighbors.length;
-
-		if (degree[index] < 2) {
-			queue.push(index);
-		}
-	}
-
-	while (queue.length > 0) {
-		const current = queue.pop();
-		if (current === undefined) {
-			continue;
-		}
-
-		if (keptMask[current] === 0 || degree[current] >= 2) {
-			continue;
-		}
-
-		keptMask[current] = 0;
-
-		for (const neighbor of neighborLists[current]) {
-			if (keptMask[neighbor] === 0) {
-				continue;
-			}
-
-			if (degree[neighbor] > 0) {
-				degree[neighbor] -= 1;
-			}
-
-			if (degree[neighbor] < 2) {
-				queue.push(neighbor);
-			}
-		}
-	}
-
-	return keptMask;
-}
-
 function traceClosedFaces(adjacency: number[][], points: EdgePoint[]): EdgePath[] {
 	const visitedHalfEdges = new Set<string>();
 	const paths: EdgePath[] = [];
 	const totalHalfEdges = adjacency.reduce((count, neighbors) => count + neighbors.length, 0);
-	const MIN_CYCLE_POINTS = 5; // Require at least 5 points to filter staircase artifacts
-	const MIN_AREA = 1.0; // Minimum area to avoid tiny noise loops
 
 	for (let startFrom = 0; startFrom < adjacency.length; startFrom += 1) {
 		const neighbors = adjacency[startFrom];
@@ -315,18 +257,12 @@ function traceClosedFaces(adjacency: number[][], points: EdgePoint[]): EdgePath[
 				cycle.pop();
 			}
 
-			// Require minimum cycle length to filter staircase artifacts
-			if (cycle.length < MIN_CYCLE_POINTS) {
-				continue;
-			}
-
 			const polygonPoints = cycle.map((index) => points[index]);
 			const signedArea = polygonSignedArea(polygonPoints);
 
 			// In image coordinates (y-down), clockwise loops have positive area.
 			// Keeping only positive area removes the outer/exterior face cycles.
-			// Also require minimum area to filter tiny noise from staircases.
-			if (signedArea < MIN_AREA) {
+			if (signedArea <= 0) {
 				continue;
 			}
 
@@ -434,18 +370,24 @@ function polygonSignedArea(points: EdgePoint[]): number {
 	return sum * 0.5;
 }
 
-function getNeighborIndices(
+function getPackedNeighborIndices(
 	index: number,
 	width: number,
 	height: number,
-	edgeMask: Uint8Array
+	edgeMask: Uint8Array,
+	packedNeighbors: Uint32Array
 ): number[] {
 	const x = index % width;
 	const y = Math.floor(index / width);
 	const neighbors: number[] = [];
+	const packed = packedNeighbors[index];
 
-	// cardinal neighbors
-	for (const [offsetX, offsetY] of neighborOffsets) {
+	for (let dir = 0; dir < neighborOffsets.length; dir += 1) {
+		if ((packed & (1 << dir)) === 0) {
+			continue;
+		}
+
+		const [offsetX, offsetY] = neighborOffsets[dir];
 		const nextX = x + offsetX;
 		const nextY = y + offsetY;
 
