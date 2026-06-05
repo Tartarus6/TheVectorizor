@@ -136,9 +136,9 @@ connection will correspond to some face ID.
 This one is pretty easy to solve.
 When faces are traced, we need to figure out what color each should be filled in with.
 
-For each edge connection that we look at in the tracing passes, we can sample the color texture 90 degrees offset from
-the direction of the connection at something like a distance of 2 pixels from the connection itsself (in order to make
-sure we are getting the internal color, not just edge weirdness). Then each time we do a doubling, we can take the
+For each edge connection that we look at in the face tracing passes, we can sample the color texture 90 degrees offset
+from the direction of the connection at something like a distance of 2 pixels from the connection itsself (in order to
+make sure we are getting the internal color, not just edge weirdness). Then each time we do a doubling, we can take the
 average of the 2 samples, and write that as the edge's color
 
 That strategy might not work, due to unpredictable comparisons. I think each connection on a face might end up with
