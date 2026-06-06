@@ -29,9 +29,9 @@ grad_tex/out_grad_tex: texture_2d<f32>
 
 out_edge_tex (rgba16uint):
     x → edge flag        (whether this pixel is part of an edge)
-    y → 0                (unused)
-    z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-    w → power            (number of edge connections to pixel)
+    y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
+    z → 0                (unused)
+    w → 0                (unused)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var grad_sampler: sampler;
@@ -98,7 +98,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         let packed: u32 = pack_neighbors(neighbor_offsets, 2);
 
    	    textureStore(out_grad_tex, texel, grad_pixel);
-        textureStore(out_edge_tex, texel, vec4u(1u, 0u, packed, 0u));
+        textureStore(out_edge_tex, texel, vec4u(1u, packed, 0u, 0u));
         return;
     }
 

@@ -611,10 +611,10 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 
 	/*
 	edge textures (rgba16uint):
-		x → edge flag        (whether this pixel is part of an edge)
-		y → 0                (unused)
-		z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-		w → power            (number of edge connections to pixel)
+ 		x → edge flag        (whether this pixel is part of an edge)
+	    y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
+	    z → 0                (unused)
+	    w → 0                (unused)
 	*/
 	const edgePing = device.createTexture({
 		label: 'edge tracing texture ping',

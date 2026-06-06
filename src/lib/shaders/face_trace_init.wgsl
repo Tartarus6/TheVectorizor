@@ -10,9 +10,10 @@ counterclockwise edge around each vertex. Also writes an initial face id and a
 color sample for each directed edge.
 
 edge_tex (rgba16uint):
-    x → edge flag
-    z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-
+	x → edge flag        (whether this pixel is part of an edge)
+	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
+	z → 0                (unused)
+	w → 0                (unused)
 color_tex (rgba8unorm or rgba16float):
     sampled to determine face color
 
@@ -52,7 +53,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let texel = gid.xy;
     let edge_pix = textureLoad(edge_tex, vec2i(texel), 0);
     let edge_flag = edge_pix.x;
-    let packed = edge_pix.z;
+    let packed = edge_pix.y;
 
     let pixel_index = texel.y * dims.x + texel.x;
     let base_edge_index = pixel_index * 8u;
@@ -84,7 +85,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
             continue;
         }
 
-        let neighbor_packed = neighbor_pix.z;
+        let neighbor_packed = neighbor_pix.y;
         let incoming_dir = (dir + 4u) & 7u;
 
         var next_dir = INVALID;

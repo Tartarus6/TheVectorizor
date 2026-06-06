@@ -10,10 +10,10 @@ and adding a connection to the "hub" pixel that's in the intersection.
 
 /*
 edge_tex (rgba16uint):
-    x → edge flag        (whether this pixel is part of an edge)
-    y → 0                (unused)
-    z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-    w → 0                (unused)
+	x → edge flag        (whether this pixel is part of an edge)
+	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
+	z → 0                (unused)
+	w → 0                (unused)
 */
 @group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16uint, read>;
 @group(0) @binding(1) var edge_out: texture_storage_2d<rgba16uint, write>;
@@ -34,7 +34,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     // loading data from input textures
     let in_edge_pix = textureLoad(edge_tex, clamp(vec2i(texel), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)));
     let edge_flag = in_edge_pix.x;
-    let packed_connections = in_edge_pix.z;
+    let packed_connections = in_edge_pix.y;
 
     var updated_packed: u32 = packed_connections; // variable to store new packed conenctions
 
@@ -55,7 +55,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
             let neighbor_pix = textureLoad(edge_tex, pos);
 
-            let neighbor_neighbors = unpack_neighbors(neighbor_pix.z);
+            let neighbor_neighbors = unpack_neighbors(neighbor_pix.y);
             var neighbor_points_to_this = false;
 
             // for this neighbor, look at each of its neighbors to see if self is one of them
@@ -73,7 +73,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         }
     }
 
-    textureStore(edge_out, texel, vec4u(in_edge_pix.xy, updated_packed, in_edge_pix.w));
+    textureStore(edge_out, texel, vec4u(in_edge_pix.x, updated_packed, in_edge_pix.zw));
 }
 
 // TODO: remove this code duplication if possible. maybe there's a way to shader this const and functions between shaders, idk.

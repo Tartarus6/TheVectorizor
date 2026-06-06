@@ -16,10 +16,10 @@ grad_tex: texture_2d<f32>
 	w → 0               (unused)
 
 in_edge_tex/out_edge_tex (rgba16uint):
-    x → edge flag        (whether this pixel is part of an edge)
-    y → 0                (unused)
-    z → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-    w → 0                (unused)
+	x → edge flag        (whether this pixel is part of an edge)
+	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
+	z → 0                (unused)
+	w → 0                (unused)
 */
 @group(0) @binding(0) var grad_tex: texture_2d<f32>;
 @group(0) @binding(1) var in_edge_tex: texture_2d<u32>;
@@ -45,7 +45,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let grad_pix = textureLoad(grad_tex, clamp(vec2i(texel), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
     let in_edge_pix = textureLoad(in_edge_tex, clamp(vec2i(texel), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
     let edge_flag = in_edge_pix.x;
-    let packed_connections = in_edge_pix.z;
+    let packed_connections = in_edge_pix.y;
     let grad_mag = grad_pix.x;
     let theta = grad_pix.y;
 
@@ -137,7 +137,7 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
     // pack candidate offsets and save it into current pixel
     let packed: u32 = pack_neighbors(neighbor_offsets, neighbor_count);
-    textureStore(out_edge_tex, texel, vec4u(in_edge_pix.xy, packed, in_edge_pix.w));
+    textureStore(out_edge_tex, texel, vec4u(in_edge_pix.x, packed, in_edge_pix.zw));
 }
 
 fn get_section(theta: f32, section_count: u32) -> u32 {
