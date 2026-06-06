@@ -2,6 +2,7 @@
  ? This code is mostly LLM-written, and is just for testing. it will not be the final thing.
  ? The final code will probably be written for WASM so that it can be a lot faster.
  * What this file does is take in a specially formatted texture, and turn it into an SVG.
+ * UPDATE: this file is now out of date. a newer strategy is used in `face_svg.ts`. this file is no longer used
 */
 
 type EdgePoint = {

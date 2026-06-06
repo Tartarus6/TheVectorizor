@@ -214,7 +214,7 @@
 </div>
 <div class="flex w-fit flex-col gap-2 bg-black">
 	{#if svgUrl}
-		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="bg-white" />
+		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
 	{/if}
 	<canvas bind:this={edge_canvas} style="image-rendering: pixelated; background: transparent;"
 	></canvas>

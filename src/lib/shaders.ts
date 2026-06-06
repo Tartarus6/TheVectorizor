@@ -9,8 +9,9 @@ import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
 import reciprocating_neighbors_shader from '$lib/shaders/reciprocating_neighbors.wgsl?raw';
 import edge_visualization_shader from '$lib/shaders/edge_visualization.wgsl?raw';
-import { textureToEdgeSvg } from '$lib/edge_svg';
-import { textureToSvg } from '$lib/edge_svg_2';
+import face_trace_init_shader from '$lib/shaders/face_trace_init.wgsl?raw';
+import face_trace_jump_shader from '$lib/shaders/face_trace_jump.wgsl?raw';
+import { faceBuffersToSvg } from '$lib/face_svg';
 
 /*
 Idea for turning edges into shapes:
@@ -247,6 +248,16 @@ type SharedBuffers = {
 	meanDensityScore: GPUBuffer;
 };
 
+type FaceTraceBuffers = {
+	nextEdgeBase: GPUBuffer;
+	nextEdgePing: GPUBuffer;
+	nextEdgePong: GPUBuffer;
+	faceIdPing: GPUBuffer;
+	faceIdPong: GPUBuffer;
+	edgeColor: GPUBuffer;
+	edgeCount: number;
+};
+
 type Pipelines = {
 	srgbToOklab: GPURenderPipeline;
 	oklabToSrgb: GPURenderPipeline;
@@ -259,6 +270,8 @@ type Pipelines = {
 	gradientMax: GPUComputePipeline;
 	edgeTrace: GPUComputePipeline;
 	reciprocatingNeighbors: GPUComputePipeline;
+	faceTraceInit: GPUComputePipeline;
+	faceTraceJump: GPUComputePipeline;
 	edgeVisualization: GPURenderPipeline;
 };
 
@@ -285,6 +298,7 @@ export async function run_shader(
 	const size = getImageSize(imageBitMap);
 	const textures = createSharedTextures(device, size);
 	const buffers = createSharedBuffers(device, size);
+	const faceBuffers = createFaceTraceBuffers(device, size);
 	const pipelines = createPipelines(device);
 	const gradientMaxSampler = createGradientMaxSampler(device);
 
@@ -436,19 +450,65 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	// --- Svg Creation ---
-	// TODO: the svg implementation below is not final. it's just for testing.
+	// --- Face Tracing Init (directed edges + face ids) ---
 	startTime = performance.now();
 	console.log();
-	console.log('Edge SVG:');
-	const svg = await textureToEdgeSvg(
+	console.log('Face Trace Init:');
+	await faceTraceInitPass(
+		device,
+		pipelines.faceTraceInit,
+		final_edge_texture,
+		textures.inputSrgb,
+		faceBuffers.nextEdgeBase,
+		faceBuffers.faceIdPing,
+		faceBuffers.edgeColor,
+		size
+	);
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
+	// --- Face Tracing Pointer Jumping ---
+	const faceTracePasses = Math.ceil(Math.log2(Math.max(1, faceBuffers.edgeCount)));
+	let nextEdgeIn = faceBuffers.nextEdgeBase;
+	let faceIdIn = faceBuffers.faceIdPing;
+	for (let passIndex = 0; passIndex < faceTracePasses; passIndex += 1) {
+		startTime = performance.now();
+		console.log();
+		console.log('Face Trace Jump Pass:', passIndex);
+
+		const nextEdgeOut = passIndex % 2 === 0 ? faceBuffers.nextEdgePong : faceBuffers.nextEdgePing;
+		const faceIdOut = passIndex % 2 === 0 ? faceBuffers.faceIdPong : faceBuffers.faceIdPing;
+
+		await faceTraceJumpPass(
+			device,
+			pipelines.faceTraceJump,
+			nextEdgeIn,
+			faceIdIn,
+			nextEdgeOut,
+			faceIdOut,
+			faceBuffers.edgeCount
+		);
+
+		nextEdgeIn = nextEdgeOut;
+		faceIdIn = faceIdOut;
+
+		endTime = performance.now();
+		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+	}
+
+	// --- Svg Creation ---
+	startTime = performance.now();
+	console.log();
+	console.log('Face SVG:');
+	const svg = await faceBuffersToSvg(
 		device,
 		textures.gradientPong,
-		final_edge_texture,
+		faceBuffers.nextEdgeBase,
+		faceIdIn,
+		faceBuffers.edgeColor,
 		size.width,
 		size.height
 	);
-	textureToSvg(device, textures.gradientPong, final_edge_texture, size.width, size.height);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
@@ -629,6 +689,58 @@ function createSharedBuffers(device: GPUDevice, size: ImageSize): SharedBuffers 
 		inPartialSums,
 		outPartialSums,
 		meanDensityScore
+	};
+}
+
+function createFaceTraceBuffers(device: GPUDevice, size: ImageSize): FaceTraceBuffers {
+	const edgeCount = size.width * size.height * 8;
+	const edgeBufferSize = edgeCount * Uint32Array.BYTES_PER_ELEMENT;
+	const colorBufferSize = edgeCount * 4 * Float32Array.BYTES_PER_ELEMENT;
+
+	const nextEdgeBase = device.createBuffer({
+		label: 'face trace next edge base',
+		size: edgeBufferSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+
+	const nextEdgePing = device.createBuffer({
+		label: 'face trace next edge ping',
+		size: edgeBufferSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+
+	const nextEdgePong = device.createBuffer({
+		label: 'face trace next edge pong',
+		size: edgeBufferSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+
+	const faceIdPing = device.createBuffer({
+		label: 'face trace id ping',
+		size: edgeBufferSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+
+	const faceIdPong = device.createBuffer({
+		label: 'face trace id pong',
+		size: edgeBufferSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+
+	const edgeColor = device.createBuffer({
+		label: 'face trace edge color',
+		size: colorBufferSize,
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+	});
+
+	return {
+		nextEdgeBase,
+		nextEdgePing,
+		nextEdgePong,
+		faceIdPing,
+		faceIdPong,
+		edgeColor,
+		edgeCount
 	};
 }
 
@@ -824,6 +936,32 @@ function createPipelines(device: GPUDevice): Pipelines {
 		}
 	});
 
+	const faceTraceInitModule = device.createShaderModule({
+		label: 'face trace init module',
+		code: face_trace_init_shader
+	});
+	const faceTraceInit = device.createComputePipeline({
+		label: 'face trace init compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: faceTraceInitModule,
+			entryPoint: 'cs_main'
+		}
+	});
+
+	const faceTraceJumpModule = device.createShaderModule({
+		label: 'face trace jump module',
+		code: face_trace_jump_shader
+	});
+	const faceTraceJump = device.createComputePipeline({
+		label: 'face trace jump compute pipeline',
+		layout: 'auto',
+		compute: {
+			module: faceTraceJumpModule,
+			entryPoint: 'cs_main'
+		}
+	});
+
 	const edgeVisualizationModule = device.createShaderModule({
 		label: 'edge visualization module',
 		code: edge_visualization_shader
@@ -858,6 +996,8 @@ function createPipelines(device: GPUDevice): Pipelines {
 		gradientMax,
 		edgeTrace,
 		reciprocatingNeighbors,
+		faceTraceInit,
+		faceTraceJump,
 		edgeVisualization
 	};
 }
@@ -1383,6 +1523,77 @@ async function edgeTracePass(
 	pass.setPipeline(pipeline);
 	pass.setBindGroup(0, bindGroup);
 	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
+
+	device.queue.submit([encoder.finish()]);
+}
+
+async function faceTraceInitPass(
+	device: GPUDevice,
+	pipeline: GPUComputePipeline,
+	edgeTexture: GPUTexture,
+	colorTexture: GPUTexture,
+	nextEdgeBuffer: GPUBuffer,
+	faceIdBuffer: GPUBuffer,
+	edgeColorBuffer: GPUBuffer,
+	size: ImageSize
+): Promise<void> {
+	const bindGroup = device.createBindGroup({
+		label: 'face trace init bind group',
+		layout: pipeline.getBindGroupLayout(0),
+		entries: [
+			{ binding: 0, resource: edgeTexture.createView() },
+			{ binding: 1, resource: colorTexture.createView() },
+			{ binding: 2, resource: { buffer: nextEdgeBuffer } },
+			{ binding: 3, resource: { buffer: faceIdBuffer } },
+			{ binding: 4, resource: { buffer: edgeColorBuffer } }
+		]
+	});
+
+	const encoder = device.createCommandEncoder({ label: 'face trace init encoder' });
+	const pass = encoder.beginComputePass({ label: 'face trace init compute pass' });
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
+
+	device.queue.submit([encoder.finish()]);
+}
+
+async function faceTraceJumpPass(
+	device: GPUDevice,
+	pipeline: GPUComputePipeline,
+	nextEdgeIn: GPUBuffer,
+	faceIdIn: GPUBuffer,
+	nextEdgeOut: GPUBuffer,
+	faceIdOut: GPUBuffer,
+	edgeCount: number
+): Promise<void> {
+	const params = new Uint32Array([edgeCount]);
+	const paramsBuffer = device.createBuffer({
+		label: 'face trace jump params',
+		size: params.byteLength,
+		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+	});
+	device.queue.writeBuffer(paramsBuffer, 0, params);
+
+	const bindGroup = device.createBindGroup({
+		label: 'face trace jump bind group',
+		layout: pipeline.getBindGroupLayout(0),
+		entries: [
+			{ binding: 0, resource: { buffer: paramsBuffer } },
+			{ binding: 1, resource: { buffer: nextEdgeIn } },
+			{ binding: 2, resource: { buffer: faceIdIn } },
+			{ binding: 3, resource: { buffer: nextEdgeOut } },
+			{ binding: 4, resource: { buffer: faceIdOut } }
+		]
+	});
+
+	const encoder = device.createCommandEncoder({ label: 'face trace jump encoder' });
+	const pass = encoder.beginComputePass({ label: 'face trace jump compute pass' });
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(edgeCount / 256));
 	pass.end();
 
 	device.queue.submit([encoder.finish()]);
