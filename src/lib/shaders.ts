@@ -199,23 +199,28 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // DONE: filter maxima to find only important edges
 // DONE: implement Canny double threshold. Above H, maxima are immediately accepted, and abolve L, pixels are taken if connected to valid points. Below L are ignored. (H and L should be calculated based on image)
 // DONE: switch to including alpha in gradient math, rather than just Lab
-// TODO: better handle pixels on the borders of the image, i think it's currently nearly/completely impossible for them to be marked as an edge. (maybe they should always be edges?)
+// DONE: better handle pixels on the borders of the image, i think it's currently nearly/completely impossible for them to be marked as an edge. (maybe they should always be edges?)
+// DONE: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
 // TODO: add a pass to check whether edge tracing is complete (check if all marked edge pixels have degree of at least 2) (need to do this while avoiding the 100ms waits of cpu-side reads)
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
-// TODO: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
 // TODO: fix junctinons kinda pulling edges in in subpixel offsetting (like the bigger line in a t-junction will get pulled towards the smaller one, like a stitch getting pulled tight)
+// TODO: add background removal. primarily for when the background was transparent, so there isn't a mostly transparent square around the svg
+// TODO: (size optimizing) recognise straight lines and turn a set of approx. linear points into a line
+// TODO: (size optimizing) recognise curves, turn points along approx. continuous curves into a bezier
+// TODO: (size optimizing) reduce decimal points saved
+// TODO: (size optimizing) remove points that are really close to each other
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
 // DONE: update the canvas view of the output each pass to show incremental work
 // DONE: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
+// DONE: (maybe) remove all or some of the readback buffers. are they needed/used?
+// DONE: (question) how exactly do layers work in an svg? what needs to be done to make sure that the stuff on top in the image is drawn on top in the svg?
 // TODO: fix clustering messing up outer edges of certain images. it seems like certain images that have white next to a transparent background have their outer edges really mangled. (note for tar: beaSticker_0.png is an example image with this issue)
 // TODO: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
 // TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
-// TODO: (maybe) remove all or some of the readback buffers. are they needed/used?
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
-// TODO: (question) how exactly do layers work in an svg? what needs to be done to make sure that the stuff on top in the image is drawn on top in the svg?
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is

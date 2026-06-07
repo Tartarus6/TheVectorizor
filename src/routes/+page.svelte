@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { run_shader } from '$lib/shaders';
+	import { optimize } from 'svgo/browser';
 
 	let svgUrl: string | undefined = $state();
+	let svgBlob: Blob | undefined = $state();
 
 	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another
 	// TODO: figure out good ranges for the input variables (like blur radius), and maybe dont hardcode the limits
@@ -155,7 +157,8 @@
 			}
 
 			const res = await fetch(uploadedImageUrl as string);
-			image = await createImageBitmap(await res.blob());
+			let pngBlob = await res.blob();
+			image = await createImageBitmap(pngBlob);
 
 			image_canvas.width = image.width;
 			image_canvas.height = image.height;
@@ -173,7 +176,7 @@
 				return;
 			}
 
-			const startTime = performance.now();
+			let startTime = performance.now();
 			const [success, svg] = await run_shader(
 				clustered_ctx,
 				edge_ctx,
@@ -184,15 +187,24 @@
 				num_cluster_passes,
 				num_edge_trace_passes
 			);
-			const endTime = performance.now();
+			let endTime = performance.now();
 			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 			if (success) {
+				startTime = performance.now();
+				const { data: optimizedSvg } = optimize(svg);
+				endTime = performance.now();
+				console.log(`Optimize execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
 				if (svgUrl) {
 					URL.revokeObjectURL(svgUrl);
 				}
 
-				svgUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+				svgBlob = new Blob([optimizedSvg], { type: 'image/svg+xml' });
+
+				svgUrl = URL.createObjectURL(svgBlob);
+				console.log(`PNG size: ${pngBlob.size} bytes`);
+				console.log(`SVG size: ${svgBlob.size} bytes`);
 			}
 		}}
 		class="m-2 w-fit cursor-pointer bg-purple-500 p-2"
@@ -212,7 +224,7 @@
 		/>
 	{/if}
 </div>
-<div class="flex w-fit flex-col gap-2 bg-black">
+<div class="checker flex w-fit flex-col gap-2">
 	{#if svgUrl}
 		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
 	{/if}
@@ -222,3 +234,21 @@
 	></canvas>
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>
+
+<style>
+	canvas,
+	img {
+		--size: 30px;
+		--color-1: #ccc;
+		--color-2: #bbb;
+		background: conic-gradient(
+			var(--color-1) 90deg,
+			var(--color-2) 90deg 180deg,
+			var(--color-1) 180deg 270deg,
+			var(--color-2) 270deg
+		);
+		background-repeat: repeat;
+		background-size: var(--size) var(--size);
+		background-position: top left;
+	}
+</style>

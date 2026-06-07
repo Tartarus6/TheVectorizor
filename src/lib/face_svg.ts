@@ -136,7 +136,7 @@ export async function faceBuffersToSvg(
 		.map((path) => {
 			const commands = path.points.map((point, index) => {
 				const command = index === 0 ? 'M' : 'L';
-				return `${command} ${point.x.toFixed(3)} ${point.y.toFixed(3)}`;
+				return `${command} ${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
 			});
 
 			const d = `${commands.join(' ')} Z`;
