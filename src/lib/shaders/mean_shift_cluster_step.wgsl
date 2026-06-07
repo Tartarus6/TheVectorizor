@@ -63,7 +63,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
 
             let other = textureLoad(input_colors, other_pos, 0);
 
-            let color_delta = color.xyz - other.xyz;
+            let color_delta = color - other;
             let image_delta = vec2f(pos) - vec2f(other_pos);
             let color_dist_squared = dot(color_delta, color_delta);
             let image_dist_squared = dot(image_delta, image_delta);

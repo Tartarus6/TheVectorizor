@@ -38,10 +38,10 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 /*
 output: texture_2d<f32>
-    x -> 0        (unused)
-    y -> grad_mag (magnitude of gradient)
-    z -> theta    (direction of gradient)
-    w -> 0        (unused)
+	x → grad_mag (magnitude of gradient)
+	y → theta    (direction of gradient)
+	z → 0        (unused)
+	w → 0        (unused)
 */
 
 
@@ -69,8 +69,8 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let down_left = textureLoad(in_tex, clamp(vec2i(texel) + vec2i(-1, 1), vec2i(0, 0), vec2i(dims) - vec2i(1, 1)), 0);
 
     // sobel filter
-    let gx = 2 * (right.xyz - left.xyz) + (down_right.xyz - up_left.xyz) + (up_right.xyz - down_left.xyz); // dColor / dx
-    let gy = 2 * (down.xyz - up.xyz) + (down_right.xyz - up_left.xyz) + (down_left.xyz - up_right.xyz);    // dColor / dy
+    let gx = 2 * (right - left) + (down_right - up_left) + (up_right - down_left); // dColor / dx
+    let gy = 2 * (down - up) + (down_right - up_left) + (down_left - up_right);    // dColor / dy
 
     // --- DiZenzo-style multi-channel gradient tensor ---
     let A = dot(gx, gx);
@@ -82,5 +82,5 @@ fn cs_main(in: VsOut) -> @location(0) vec4f {
     let grad_mag = sqrt(0.5 * ((A + C) + sqrt((A - C)*(A - C) + (4f * B * B))));
 
     // TODO: switch texture format to match the one used for gradient maximizing
-    return vec4f(0, grad_mag, theta, 0);
+    return vec4f(grad_mag, theta, 0, 0);
 }
