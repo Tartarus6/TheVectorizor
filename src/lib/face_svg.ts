@@ -15,105 +15,106 @@ type FacePath = {
 	minPixelIndex: number;
 };
 
-const INVALID_EDGE = 0xffffffff;
-const EDGE_DIRS = 8;
+const INVALID_CONNECTION = 0xffffffff;
 
 export async function faceBuffersToSvg(
 	device: GPUDevice,
 	gradTexture: GPUTexture,
-	nextEdgeBuffer: GPUBuffer,
-	faceIdBuffer: GPUBuffer,
-	edgeColorBuffer: GPUBuffer,
+	edgeTexture: GPUTexture,
+	edgeDataBuffer: GPUBuffer,
 	width: number,
-	height: number
+	height: number,
+	connectionCount: number
 ): Promise<string> {
-	const edgeCount = width * height * EDGE_DIRS;
+	const connectionsData = await readEdgeDataBuffer(device, edgeDataBuffer, connectionCount);
 
-	const [gradData, nextEdges, faceIds, edgeColors] = await Promise.all([
+	const [gradTexData, edgeTexData] = await Promise.all([
 		readRgba16FloatTexture(device, gradTexture, width, height),
-		readUint32Buffer(device, nextEdgeBuffer, edgeCount),
-		readUint32Buffer(device, faceIdBuffer, edgeCount),
-		readFloat32Buffer(device, edgeColorBuffer, edgeCount * 4)
+		readRgba16UintTexture(device, edgeTexture, width, height)
 	]);
 
 	const subpixelPoints: EdgePoint[] = new Array(width * height);
+	const connectionsDataIdx: number[] = new Array(width * height);
 	for (let index = 0; index < width * height; index += 1) {
 		const base = index * 4;
-		const theta = gradData[base + 1];
-		const offset = gradData[base + 2];
+		const theta = gradTexData[base + 1];
+		const offset = gradTexData[base + 2];
+		const idx = edgeTexData[base + 2];
+
 		subpixelPoints[index] = {
 			x: (index % width) + 0.5 + Math.cos(theta) * offset,
 			y: Math.floor(index / width) + 0.5 + Math.sin(theta) * offset
 		};
+		connectionsDataIdx[index] = idx;
 	}
 
 	type FaceAccumulator = {
 		startEdge: number;
-		minPixelIndex: number;
+		minConnectionIndex: number;
 		colorSum: [number, number, number, number];
 		count: number;
 	};
 
 	const faces = new Map<number, FaceAccumulator>();
 
-	for (let edgeIndex = 0; edgeIndex < edgeCount; edgeIndex += 1) {
-		const faceId = faceIds[edgeIndex];
-		if (faceId === INVALID_EDGE) {
+	for (let connectionIndex = 0; connectionIndex < connectionCount; connectionIndex += 1) {
+		const connection = connectionsData[connectionIndex];
+		if (connection.faceId === INVALID_CONNECTION) {
 			continue;
 		}
 
-		if (nextEdges[edgeIndex] === INVALID_EDGE) {
+		if (connection.nextConnectionIdx === INVALID_CONNECTION) {
 			continue;
 		}
 
-		let entry = faces.get(faceId);
+		let entry = faces.get(connection.faceId);
 		if (!entry) {
 			entry = {
-				startEdge: edgeIndex,
-				minPixelIndex: Math.floor(edgeIndex / EDGE_DIRS),
+				startEdge: connectionIndex,
+				minConnectionIndex: connection.posIdx,
 				colorSum: [0, 0, 0, 0],
 				count: 0
 			};
-			faces.set(faceId, entry);
+			faces.set(connection.faceId, entry);
 		}
 
-		const pixelIndex = Math.floor(edgeIndex / EDGE_DIRS);
-		if (pixelIndex < entry.minPixelIndex) {
-			entry.minPixelIndex = pixelIndex;
+		const pixelIndex = connection.posIdx;
+		if (pixelIndex < entry.minConnectionIndex) {
+			entry.minConnectionIndex = pixelIndex;
 		}
 
-		const colorBase = edgeIndex * 4;
-		entry.colorSum[0] += edgeColors[colorBase];
-		entry.colorSum[1] += edgeColors[colorBase + 1];
-		entry.colorSum[2] += edgeColors[colorBase + 2];
-		entry.colorSum[3] += edgeColors[colorBase + 3];
+		entry.colorSum[0] += connection.color[0];
+		entry.colorSum[1] += connection.color[1];
+		entry.colorSum[2] += connection.color[2];
+		entry.colorSum[3] += connection.color[3];
 		entry.count += 1;
 	}
 
 	const facePaths: FacePath[] = [];
 	for (const [, entry] of faces) {
-		const { startEdge } = entry;
+		const { startEdge: startConnection } = entry;
 		const points: EdgePoint[] = [];
 		const visited = new Set<number>();
-		let currentEdge = startEdge;
+		let currentConnectionIdx = startConnection;
 		let closed = false;
 
-		for (let step = 0; step <= edgeCount; step += 1) {
-			if (currentEdge === INVALID_EDGE || visited.has(currentEdge)) {
+		for (let step = 0; step <= connectionCount; step += 1) {
+			if (currentConnectionIdx === INVALID_CONNECTION || visited.has(currentConnectionIdx)) {
 				break;
 			}
 
-			visited.add(currentEdge);
-			const pixelIndex = Math.floor(currentEdge / EDGE_DIRS);
+			const connection = connectionsData[currentConnectionIdx];
+
+			visited.add(currentConnectionIdx);
+			const pixelIndex = connection.posIdx;
 			points.push(subpixelPoints[pixelIndex]);
 
-			const nextEdge = nextEdges[currentEdge];
-			if (nextEdge === startEdge) {
+			if (connection.nextConnectionIdx === startConnection) {
 				closed = true;
 				break;
 			}
 
-			currentEdge = nextEdge;
+			currentConnectionIdx = connection.nextConnectionIdx;
 		}
 
 		if (!closed || points.length < 3) {
@@ -126,7 +127,7 @@ export async function faceBuffersToSvg(
 		}
 
 		const color = averageColor(entry.colorSum, entry.count);
-		facePaths.push({ points, color, minPixelIndex: entry.minPixelIndex });
+		facePaths.push({ points, color, minPixelIndex: entry.minConnectionIndex });
 	}
 
 	facePaths.sort((a, b) => a.minPixelIndex - b.minPixelIndex);
@@ -232,48 +233,104 @@ async function readRgba16FloatTexture(
 	return data;
 }
 
-async function readUint32Buffer(
+async function readRgba16UintTexture(
 	device: GPUDevice,
-	buffer: GPUBuffer,
-	length: number
+	texture: GPUTexture,
+	width: number,
+	height: number
 ): Promise<Uint32Array> {
-	const byteLength = length * Uint32Array.BYTES_PER_ELEMENT;
-	const readback = device.createBuffer({
-		label: 'face svg u32 readback buffer',
-		size: byteLength,
+	const bytesPerPixel = 8;
+	const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
+	const readbackBuffer = device.createBuffer({
+		label: 'face svg grad readback buffer',
+		size: bytesPerRow * height,
 		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
 	});
 
-	const encoder = device.createCommandEncoder({ label: 'face svg u32 readback encoder' });
-	encoder.copyBufferToBuffer(buffer, 0, readback, 0, byteLength);
-	device.queue.submit([encoder.finish()]);
-	await readback.mapAsync(GPUMapMode.READ);
+	const encoder = device.createCommandEncoder({ label: 'face svg grad readback encoder' });
+	encoder.copyTextureToBuffer(
+		{ texture },
+		{ buffer: readbackBuffer, bytesPerRow },
+		{ width, height }
+	);
 
-	const data = new Uint32Array(readback.getMappedRange().slice(0));
-	readback.unmap();
+	device.queue.submit([encoder.finish()]);
+	await readbackBuffer.mapAsync(GPUMapMode.READ);
+
+	const mapped = new Uint8Array(readbackBuffer.getMappedRange().slice());
+	readbackBuffer.unmap();
+
+	const data = new Uint32Array(width * height * 4);
+	const view = new DataView(mapped.buffer, mapped.byteOffset, mapped.byteLength);
+
+	for (let y = 0; y < height; y += 1) {
+		const rowOffset = y * bytesPerRow;
+		for (let x = 0; x < width; x += 1) {
+			const sourceOffset = rowOffset + x * bytesPerPixel;
+			const targetOffset = (y * width + x) * 4;
+			data[targetOffset] = view.getUint16(sourceOffset, true);
+			data[targetOffset + 1] = view.getUint16(sourceOffset + 2, true);
+			data[targetOffset + 2] = view.getUint16(sourceOffset + 4, true);
+			data[targetOffset + 3] = view.getUint16(sourceOffset + 6, true);
+		}
+	}
+
 	return data;
 }
 
-async function readFloat32Buffer(
+interface EdgeData {
+	nextConnectionIdx: number;
+	jumpNextIdx: number;
+	faceId: number;
+	posIdx: number;
+	color: Float32Array; // or [number, number, number, number]
+}
+
+async function readEdgeDataBuffer(
 	device: GPUDevice,
 	buffer: GPUBuffer,
-	length: number
-): Promise<Float32Array> {
-	const byteLength = length * Float32Array.BYTES_PER_ELEMENT;
+	count: number
+): Promise<EdgeData[]> {
+	const bytesPerElement = 32; // 2 * u32 (8) + vec4f (16)
+	const byteLength = count * bytesPerElement;
+
 	const readback = device.createBuffer({
-		label: 'face svg f32 readback buffer',
+		label: 'EdgeData readback buffer',
 		size: byteLength,
 		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
 	});
 
-	const encoder = device.createCommandEncoder({ label: 'face svg f32 readback encoder' });
+	const encoder = device.createCommandEncoder();
 	encoder.copyBufferToBuffer(buffer, 0, readback, 0, byteLength);
 	device.queue.submit([encoder.finish()]);
-	await readback.mapAsync(GPUMapMode.READ);
 
-	const data = new Float32Array(readback.getMappedRange().slice(0));
+	await readback.mapAsync(GPUMapMode.READ);
+	const mapped = readback.getMappedRange();
+
+	// Use a DataView to handle the mixed types and offsets
+	const view = new DataView(mapped);
+	const result: EdgeData[] = [];
+
+	for (let i = 0; i < count; i++) {
+		const offset = i * bytesPerElement;
+		result.push({
+			nextConnectionIdx: view.getUint32(offset + 0, true),
+			jumpNextIdx: view.getUint32(offset + 4, true),
+			faceId: view.getUint32(offset + 8, true),
+			posIdx: view.getUint32(offset + 12, true),
+			color: new Float32Array([
+				view.getFloat32(offset + 16, true),
+				view.getFloat32(offset + 20, true),
+				view.getFloat32(offset + 24, true),
+				view.getFloat32(offset + 28, true)
+			])
+		});
+	}
+
 	readback.unmap();
-	return data;
+	readback.destroy();
+
+	return result;
 }
 
 function decodeFloat16(bits: number): number {

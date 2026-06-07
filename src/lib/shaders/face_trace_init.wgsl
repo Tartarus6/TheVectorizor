@@ -12,7 +12,7 @@ color sample for each directed edge.
 edge_tex (rgba16uint):
 	x → edge flag        (whether this pixel is part of an edge)
 	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-	z → 0                (unused)
+	z → edge_id          (unique edge id, corresponds to the starting index of the pixel's connections)
 	w → 0                (unused)
 color_tex (rgba8unorm or rgba16float):
     sampled to determine face color
@@ -23,11 +23,17 @@ Buffers:
     edge_color  → per-edge color sample (vec4f)
 */
 
+struct EdgeData {
+	next_edge_idx: u32, // index of actual next edge in the array
+    jump_next_idx: u32, // index of next jump edge in the array
+    face_id: u32,       // index of "face" index in this array
+    pos_idx: u32,
+    color: vec4f,       // average color
+}
+
 @group(0) @binding(0) var edge_tex: texture_2d<u32>;
 @group(0) @binding(1) var color_tex: texture_2d<f32>;
-@group(0) @binding(2) var<storage, read_write> next_edge: array<u32>;
-@group(0) @binding(3) var<storage, read_write> face_id: array<u32>;
-@group(0) @binding(4) var<storage, read_write> edge_color: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> edge_data_out: array<EdgeData>;
 
 const INVALID: u32 = 0xffffffffu;
 
@@ -59,29 +65,19 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let base_edge_index = pixel_index * 8u;
 
     for (var dir: u32 = 0u; dir < 8u; dir = dir + 1u) {
-        let edge_index = base_edge_index + dir;
+    	// if pixel isn'y edge or connection doesn't exist, skip
+        if (edge_flag == 0u || (packed & (1u << dir)) == 0u) { continue; }
 
-        if (edge_flag == 0u || (packed & (1u << dir)) == 0u) {
-            next_edge[edge_index] = INVALID;
-            face_id[edge_index] = INVALID;
-            edge_color[edge_index] = vec4f(0.0, 0.0, 0.0, 0.0);
-            continue;
-        }
+        let my_sparse_idx = get_sparse_index(vec2i(texel), dir, packed);
 
         let dir_vec = DIRS[dir];
         let neighbor = vec2i(texel) + dir_vec;
         if (neighbor.x < 0 || neighbor.y < 0 || neighbor.x >= i32(dims.x) || neighbor.y >= i32(dims.y)) {
-            next_edge[edge_index] = INVALID;
-            face_id[edge_index] = INVALID;
-            edge_color[edge_index] = vec4f(0.0, 0.0, 0.0, 0.0);
             continue;
         }
 
         let neighbor_pix = textureLoad(edge_tex, neighbor, 0);
         if (neighbor_pix.x == 0u) {
-            next_edge[edge_index] = INVALID;
-            face_id[edge_index] = INVALID;
-            edge_color[edge_index] = vec4f(0.0, 0.0, 0.0, 0.0);
             continue;
         }
 
@@ -97,22 +93,35 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
             }
         }
 
-        if (next_dir == INVALID) {
-            next_edge[edge_index] = INVALID;
-            face_id[edge_index] = INVALID;
-            edge_color[edge_index] = vec4f(0.0, 0.0, 0.0, 0.0);
-            continue;
-        }
+        // if (next_dir == INVALID) { continue; }
 
-        let neighbor_index = u32(neighbor.y) * dims.x + u32(neighbor.x);
-        let next_edge_index = neighbor_index * 8u + next_dir;
+        let next_sparse_idx = get_sparse_index(neighbor, next_dir, neighbor_packed);
 
-        next_edge[edge_index] = next_edge_index;
-        face_id[edge_index] = min(edge_index, next_edge_index);
+        // Populate the sparse buffer
+        edge_data_out[my_sparse_idx].next_edge_idx = next_sparse_idx;
+        edge_data_out[my_sparse_idx].jump_next_idx = next_sparse_idx;
+        // Face ID initialization (using sparse indices as IDs)
+        edge_data_out[my_sparse_idx].face_id = my_sparse_idx;
 
+        // position
+        edge_data_out[my_sparse_idx].pos_idx = texel.x + dims.x * texel.y;
+
+        // color
         let perp = vec2i(-dir_vec.y, dir_vec.x);
         let sample_pos = clamp(vec2i(texel) + perp * 2, vec2i(0, 0), vec2i(dims) - vec2i(1, 1));
         let color = textureLoad(color_tex, sample_pos, 0);
-        edge_color[edge_index] = color;
+
+        edge_data_out[my_sparse_idx].color = color;
+
     }
+}
+
+// Helper to find which "slot" a specific direction occupies for a pixel
+fn get_sparse_index(pixel_coords: vec2i, dir: u32, packed_mask: u32) -> u32 {
+	let base = textureLoad(edge_tex, pixel_coords, 0).z;
+
+	// The direction's slot is the base index + how many bits were set before it
+	let mask_before = (1u << dir) - 1u;
+	let offset = countOneBits(packed_mask & mask_before);
+	return base + offset;
 }

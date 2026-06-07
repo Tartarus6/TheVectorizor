@@ -209,6 +209,7 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: (size optimizing) recognise curves, turn points along approx. continuous curves into a bezier
 // TODO: (size optimizing) reduce decimal points saved
 // TODO: (size optimizing) remove points that are really close to each other
+// TODO: fix Uncaptured WebGPU error: In a dispatch command, indirect:false, caused by: Each current dispatch group size dimension ([73728, 1, 1]) must be less or equal to 65535 (need to split up big images to avoid size limit)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -251,16 +252,12 @@ type SharedBuffers = {
 	inPartialSums: GPUBuffer;
 	outPartialSums: GPUBuffer;
 	meanDensityScore: GPUBuffer;
+	connectionCount: GPUBuffer;
 };
 
 type FaceTraceBuffers = {
-	nextEdgeBase: GPUBuffer;
-	nextEdgePing: GPUBuffer;
-	nextEdgePong: GPUBuffer;
-	faceIdPing: GPUBuffer;
-	faceIdPong: GPUBuffer;
-	edgeColor: GPUBuffer;
-	edgeCount: number;
+	edgeDataPing: GPUBuffer;
+	edgeDataPong: GPUBuffer;
 };
 
 type Pipelines = {
@@ -303,7 +300,6 @@ export async function run_shader(
 	const size = getImageSize(imageBitMap);
 	const textures = createSharedTextures(device, size);
 	const buffers = createSharedBuffers(device, size);
-	const faceBuffers = createFaceTraceBuffers(device, size);
 	const pipelines = createPipelines(device);
 	const gradientMaxSampler = createGradientMaxSampler(device);
 
@@ -441,14 +437,15 @@ export async function run_shader(
 	// --- Reciprocating Neighbors ---
 	startTime = performance.now();
 	console.log();
-	console.log('Edge Power:');
+	console.log('Reciprocating Neighbors:');
 	const reciprocatingNeighborsOutput =
 		final_edge_texture === textures.edgePing ? textures.edgePong : textures.edgePing;
-	await edgePowerPass(
+	await reciprocatingNeighborsPass(
 		device,
 		pipelines.reciprocatingNeighbors,
 		final_edge_texture,
 		reciprocatingNeighborsOutput,
+		buffers.connectionCount,
 		size
 	);
 	final_edge_texture = reciprocatingNeighborsOutput;
@@ -456,6 +453,11 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Init (directed edges + face ids) ---
+
+	// making buffers (needed to know how many connections there were in order to know what size to make these buffers)
+	const connectionCountNumber = await readU32Buffer(device, buffers.connectionCount);
+	const faceBuffers = await createFaceTraceBuffers(device, connectionCountNumber);
+
 	startTime = performance.now();
 	console.log();
 	console.log('Face Trace Init:');
@@ -464,42 +466,44 @@ export async function run_shader(
 		pipelines.faceTraceInit,
 		final_edge_texture,
 		textures.inputSrgb,
-		faceBuffers.nextEdgeBase,
-		faceBuffers.faceIdPing,
-		faceBuffers.edgeColor,
+		faceBuffers.edgeDataPing,
 		size
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Pointer Jumping ---
-	const faceTracePasses = Math.ceil(Math.log2(Math.max(1, faceBuffers.edgeCount)));
-	let nextEdgeIn = faceBuffers.nextEdgeBase;
-	let faceIdIn = faceBuffers.faceIdPing;
+	// const faceTracePasses = Math.ceil(Math.log2(Math.max(1, connectionCountNumber)));
+	const faceTracePasses = 100;
+	let connectionDataIn = faceBuffers.edgeDataPing;
+	let connectionDataOut = faceBuffers.edgeDataPong;
+	let finalConnectionData = connectionDataOut;
 	for (let passIndex = 0; passIndex < faceTracePasses; passIndex += 1) {
 		startTime = performance.now();
 		console.log();
 		console.log('Face Trace Jump Pass:', passIndex);
 
-		const nextEdgeOut = passIndex % 2 === 0 ? faceBuffers.nextEdgePong : faceBuffers.nextEdgePing;
-		const faceIdOut = passIndex % 2 === 0 ? faceBuffers.faceIdPong : faceBuffers.faceIdPing;
-
 		await faceTraceJumpPass(
 			device,
 			pipelines.faceTraceJump,
-			nextEdgeIn,
-			faceIdIn,
-			nextEdgeOut,
-			faceIdOut,
-			faceBuffers.edgeCount
+			connectionDataIn,
+			connectionDataOut,
+			connectionCountNumber
 		);
 
-		nextEdgeIn = nextEdgeOut;
-		faceIdIn = faceIdOut;
+		// update final
+		finalConnectionData = connectionDataOut;
+
+		// switch in and out for next loop
+		const temp = connectionDataIn;
+		connectionDataIn = connectionDataOut;
+		connectionDataOut = temp;
 
 		endTime = performance.now();
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	// const finalConnectionData = faceBuffers.edgeDataPing;
 
 	// --- Svg Creation ---
 	startTime = performance.now();
@@ -508,11 +512,11 @@ export async function run_shader(
 	const svg = await faceBuffersToSvg(
 		device,
 		textures.gradientPong,
-		faceBuffers.nextEdgeBase,
-		faceIdIn,
-		faceBuffers.edgeColor,
+		final_edge_texture,
+		finalConnectionData,
 		size.width,
-		size.height
+		size.height,
+		connectionCountNumber
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
@@ -618,7 +622,7 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 	edge textures (rgba16uint):
  		x → edge flag        (whether this pixel is part of an edge)
 	    y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-	    z → 0                (unused)
+	    z → edge_id          (unique edge id, corresponds to the starting index of the pixel's connections)
 	    w → 0                (unused)
 	*/
 	const edgePing = device.createTexture({
@@ -689,63 +693,48 @@ function createSharedBuffers(device: GPUDevice, size: ImageSize): SharedBuffers 
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
 	});
 
+	// used to store the number of edge-connections there are
+	const connectionCount = device.createBuffer({
+		label: 'Connection Count Buffer',
+		size: 4, // 4 bytes for a single u32
+		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+	});
+
+	// TODO: does this overwrite need to be done?
+	// initialize counter buffer (in case it wasn't defaulting to 0)
+	const initialData = new Uint32Array([0]);
+	device.queue.writeBuffer(connectionCount, 0, initialData);
+
 	return {
 		densityScores,
 		inPartialSums,
 		outPartialSums,
-		meanDensityScore
+		meanDensityScore,
+		connectionCount
 	};
 }
 
-function createFaceTraceBuffers(device: GPUDevice, size: ImageSize): FaceTraceBuffers {
-	const edgeCount = size.width * size.height * 8;
-	const edgeBufferSize = edgeCount * Uint32Array.BYTES_PER_ELEMENT;
-	const colorBufferSize = edgeCount * 4 * Float32Array.BYTES_PER_ELEMENT;
+async function createFaceTraceBuffers(
+	device: GPUDevice,
+	connectionCount: number
+): Promise<FaceTraceBuffers> {
+	const edgeDataBufferSize = connectionCount * (6 + 4) * Float32Array.BYTES_PER_ELEMENT; // u32 * 6 + vec4f
 
-	const nextEdgeBase = device.createBuffer({
-		label: 'face trace next edge base',
-		size: edgeBufferSize,
+	const edgeDataPing = device.createBuffer({
+		label: 'edge data ping',
+		size: edgeDataBufferSize,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 
-	const nextEdgePing = device.createBuffer({
-		label: 'face trace next edge ping',
-		size: edgeBufferSize,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-	});
-
-	const nextEdgePong = device.createBuffer({
-		label: 'face trace next edge pong',
-		size: edgeBufferSize,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-	});
-
-	const faceIdPing = device.createBuffer({
-		label: 'face trace id ping',
-		size: edgeBufferSize,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-	});
-
-	const faceIdPong = device.createBuffer({
-		label: 'face trace id pong',
-		size: edgeBufferSize,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-	});
-
-	const edgeColor = device.createBuffer({
-		label: 'face trace edge color',
-		size: colorBufferSize,
+	const edgeDataPong = device.createBuffer({
+		label: 'edge data pong',
+		size: edgeDataBufferSize,
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 	});
 
 	return {
-		nextEdgeBase,
-		nextEdgePing,
-		nextEdgePong,
-		faceIdPing,
-		faceIdPong,
-		edgeColor,
-		edgeCount
+		edgeDataPing,
+		edgeDataPong
 	};
 }
 
@@ -1533,14 +1522,42 @@ async function edgeTracePass(
 	device.queue.submit([encoder.finish()]);
 }
 
+async function reciprocatingNeighborsPass(
+	device: GPUDevice,
+	pipeline: GPUComputePipeline,
+	inEdgeTexture: GPUTexture,
+	outEdgeTexture: GPUTexture,
+	connectionsCountBuffer: GPUBuffer,
+	size: ImageSize
+): Promise<void> {
+	const bindGroup = device.createBindGroup({
+		label: 'edge power bind group',
+		layout: pipeline.getBindGroupLayout(0),
+		entries: [
+			{ binding: 0, resource: inEdgeTexture.createView() },
+			{ binding: 1, resource: outEdgeTexture.createView() },
+			{ binding: 2, resource: { buffer: connectionsCountBuffer } }
+		]
+	});
+
+	const encoder = device.createCommandEncoder({ label: 'edge power encoder' });
+	const pass = encoder.beginComputePass({
+		label: 'edge power compute pass'
+	});
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
+
+	device.queue.submit([encoder.finish()]);
+}
+
 async function faceTraceInitPass(
 	device: GPUDevice,
 	pipeline: GPUComputePipeline,
 	edgeTexture: GPUTexture,
 	colorTexture: GPUTexture,
-	nextEdgeBuffer: GPUBuffer,
-	faceIdBuffer: GPUBuffer,
-	edgeColorBuffer: GPUBuffer,
+	edgeDataOut: GPUBuffer,
 	size: ImageSize
 ): Promise<void> {
 	const bindGroup = device.createBindGroup({
@@ -1549,9 +1566,7 @@ async function faceTraceInitPass(
 		entries: [
 			{ binding: 0, resource: edgeTexture.createView() },
 			{ binding: 1, resource: colorTexture.createView() },
-			{ binding: 2, resource: { buffer: nextEdgeBuffer } },
-			{ binding: 3, resource: { buffer: faceIdBuffer } },
-			{ binding: 4, resource: { buffer: edgeColorBuffer } }
+			{ binding: 2, resource: { buffer: edgeDataOut } }
 		]
 	});
 
@@ -1568,13 +1583,11 @@ async function faceTraceInitPass(
 async function faceTraceJumpPass(
 	device: GPUDevice,
 	pipeline: GPUComputePipeline,
-	nextEdgeIn: GPUBuffer,
-	faceIdIn: GPUBuffer,
-	nextEdgeOut: GPUBuffer,
-	faceIdOut: GPUBuffer,
-	edgeCount: number
+	edgeDataIn: GPUBuffer,
+	edgeDataOut: GPUBuffer,
+	connectionCount: number
 ): Promise<void> {
-	const params = new Uint32Array([edgeCount]);
+	const params = new Uint32Array([connectionCount]);
 	const paramsBuffer = device.createBuffer({
 		label: 'face trace jump params',
 		size: params.byteLength,
@@ -1587,10 +1600,8 @@ async function faceTraceJumpPass(
 		layout: pipeline.getBindGroupLayout(0),
 		entries: [
 			{ binding: 0, resource: { buffer: paramsBuffer } },
-			{ binding: 1, resource: { buffer: nextEdgeIn } },
-			{ binding: 2, resource: { buffer: faceIdIn } },
-			{ binding: 3, resource: { buffer: nextEdgeOut } },
-			{ binding: 4, resource: { buffer: faceIdOut } }
+			{ binding: 1, resource: { buffer: edgeDataIn } },
+			{ binding: 2, resource: { buffer: edgeDataOut } }
 		]
 	});
 
@@ -1598,7 +1609,7 @@ async function faceTraceJumpPass(
 	const pass = encoder.beginComputePass({ label: 'face trace jump compute pass' });
 	pass.setPipeline(pipeline);
 	pass.setBindGroup(0, bindGroup);
-	pass.dispatchWorkgroups(Math.ceil(edgeCount / 256));
+	pass.dispatchWorkgroups(Math.ceil(connectionCount / 256));
 	pass.end();
 
 	device.queue.submit([encoder.finish()]);
@@ -1644,34 +1655,6 @@ async function edgeVisualizationPass(
 	device.queue.submit([encoder.finish()]);
 }
 
-async function edgePowerPass(
-	device: GPUDevice,
-	pipeline: GPUComputePipeline,
-	inEdgeTexture: GPUTexture,
-	outEdgeTexture: GPUTexture,
-	size: ImageSize
-): Promise<void> {
-	const bindGroup = device.createBindGroup({
-		label: 'edge power bind group',
-		layout: pipeline.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: inEdgeTexture.createView() },
-			{ binding: 1, resource: outEdgeTexture.createView() }
-		]
-	});
-
-	const encoder = device.createCommandEncoder({ label: 'edge power encoder' });
-	const pass = encoder.beginComputePass({
-		label: 'edge power compute pass'
-	});
-	pass.setPipeline(pipeline);
-	pass.setBindGroup(0, bindGroup);
-	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
-	pass.end();
-
-	device.queue.submit([encoder.finish()]);
-}
-
 /// returns whether the colors changed (used to know whether to increase count)
 function compute_gaussian_kernel(radius: number): Float32Array {
 	const sigma = radius / 3.0;
@@ -1686,4 +1669,79 @@ function compute_gaussian_kernel(radius: number): Float32Array {
 	for (let i = 0; i <= radius; i++) weights[i] /= sum;
 
 	return weights;
+}
+
+async function readU32Buffer(device: GPUDevice, buffer: GPUBuffer): Promise<number> {
+	const byteLength = Uint32Array.BYTES_PER_ELEMENT; // TODO: should this just be set to the number 4? or is this fine?
+	const readback = device.createBuffer({
+		label: 'u32 readback buffer',
+		size: byteLength,
+		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+	});
+
+	const encoder = device.createCommandEncoder({ label: 'u32 readback encoder' });
+	encoder.copyBufferToBuffer(buffer, 0, readback, 0, byteLength);
+	device.queue.submit([encoder.finish()]);
+	await readback.mapAsync(GPUMapMode.READ);
+
+	const data = new Uint32Array(readback.getMappedRange().slice(0))[0];
+	readback.unmap();
+	return data;
+}
+
+interface EdgeData {
+	nextConnectionIdx: number;
+	jumpNextIdx: number;
+	faceId: number;
+	posIdx: number;
+	color: Float32Array; // or [number, number, number, number]
+}
+
+async function readEdgeDataBuffer(
+	device: GPUDevice,
+	buffer: GPUBuffer,
+	count: number
+): Promise<EdgeData[]> {
+	const bytesPerElement = 32; // 2 * u32 (8) + vec4f (16)
+	const byteLength = count * bytesPerElement;
+
+	const readback = device.createBuffer({
+		label: 'EdgeData readback buffer',
+		size: byteLength,
+		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+	});
+
+	const encoder = device.createCommandEncoder();
+	encoder.copyBufferToBuffer(buffer, 0, readback, 0, byteLength);
+	device.queue.submit([encoder.finish()]);
+
+	await readback.mapAsync(GPUMapMode.READ);
+	const mapped = readback.getMappedRange();
+
+	// Use a DataView to handle the mixed types and offsets
+	const view = new DataView(mapped);
+	const result: EdgeData[] = [];
+
+	for (let i = 0; i < count; i++) {
+		const offset = i * bytesPerElement;
+		result.push({
+			nextConnectionIdx: view.getUint32(offset + 0, true),
+			jumpNextIdx: view.getUint32(offset + 4, true),
+			faceId: view.getUint32(offset + 8, true),
+			posIdx: view.getUint32(offset + 12, true),
+			color: new Float32Array([
+				view.getFloat32(offset + 16, true),
+				view.getFloat32(offset + 20, true),
+				view.getFloat32(offset + 24, true),
+				view.getFloat32(offset + 28, true)
+			])
+		});
+	}
+
+	readback.unmap();
+	readback.destroy();
+
+	console.log(result);
+
+	return result;
 }

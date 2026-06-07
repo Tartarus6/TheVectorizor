@@ -142,12 +142,12 @@
 				type="number"
 				bind:value={num_edge_trace_passes}
 				min={0}
-				max={500}
+				max={2000}
 				step={1}
 				class="border-2 border-white"
 			/>
 		</div>
-		<input type="range" bind:value={num_edge_trace_passes} min={0} max={500} step={1} />
+		<input type="range" bind:value={num_edge_trace_passes} min={0} max={2000} step={1} />
 	</div>
 
 	<button
@@ -221,6 +221,7 @@
 			alt="uploaded"
 			bind:this={imageUploaded}
 			class="max-h-100 max-w-100"
+			style="image-rendering: pixelated;"
 		/>
 	{/if}
 </div>
@@ -228,10 +229,8 @@
 	{#if svgUrl}
 		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
 	{/if}
-	<canvas bind:this={edge_canvas} style="image-rendering: pixelated; background: transparent;"
-	></canvas>
-	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated; background: transparent;"
-	></canvas>
+	<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
+	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
 	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 </div>
 
