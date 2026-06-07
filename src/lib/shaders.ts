@@ -225,6 +225,7 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 // TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
 // TODO: check how color averaging works (for chosing the svg colors) and improve it if reasonable
+// TODO: major cleanup (reorganizing code, adding lots of comments, renaming things, removing unneded things, etc.)
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
