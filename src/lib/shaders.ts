@@ -201,15 +201,16 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // DONE: switch to including alpha in gradient math, rather than just Lab
 // DONE: better handle pixels on the borders of the image, i think it's currently nearly/completely impossible for them to be marked as an edge. (maybe they should always be edges?)
 // DONE: figure out how to turn edges into an actual vector image. How will T-intersections be handled? How will color blocks be identified? How will unclosed edges be handled? etc.
+// DONE: fix Uncaptured WebGPU error: In a dispatch command, indirect:false, caused by: Each current dispatch group size dimension ([73728, 1, 1]) must be less or equal to 65535 (need to split up big images to avoid size limit)
+// DONE: (size optimizing) recognise straight lines and turn a set of approx. linear points into a line
+// DONE: (size optimizing) recognise curves, turn points along approx. continuous curves into a bezier
+// DONE: (size optimizing) reduce decimal points saved
+// DONE: (size optimizing) remove points that are really close to each other
 // TODO: add a pass to check whether edge tracing is complete (check if all marked edge pixels have degree of at least 2) (need to do this while avoiding the 100ms waits of cpu-side reads)
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
 // TODO: fix junctinons kinda pulling edges in in subpixel offsetting (like the bigger line in a t-junction will get pulled towards the smaller one, like a stitch getting pulled tight)
 // TODO: add background removal. primarily for when the background was transparent, so there isn't a mostly transparent square around the svg
-// TODO: (size optimizing) recognise straight lines and turn a set of approx. linear points into a line
-// TODO: (size optimizing) recognise curves, turn points along approx. continuous curves into a bezier
-// TODO: (size optimizing) reduce decimal points saved
-// TODO: (size optimizing) remove points that are really close to each other
-// TODO: fix Uncaptured WebGPU error: In a dispatch command, indirect:false, caused by: Each current dispatch group size dimension ([73728, 1, 1]) must be less or equal to 65535 (need to split up big images to avoid size limit)
+// TODO: fix complex images not working. something goes wrong with more complex images (like pictures), and a lot of the svg (usually the bottom half) doesnt get created
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -223,6 +224,7 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 // TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
+// TODO: check how color averaging works (for chosing the svg colors) and improve it if reasonable
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
