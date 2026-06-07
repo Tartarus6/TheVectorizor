@@ -1,8 +1,4 @@
 /*
- ? This code is mostly LLM-written, and might be worth a rewrite.
-*/
-
-/*
 Pointer jumping pass for face tracing.
 
 Each directed edge updates its next pointer and propagates the minimum face id
@@ -54,6 +50,10 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let jump_next_next = edge_data_in[jump_next].jump_next_idx;
     let face_next = edge_data_in[jump_next].face_id;
 
+    // copy old state
+    edge_data_out[edge_index] = edge_data_in[edge_index];
+
+    // update to new info
     edge_data_out[edge_index].jump_next_idx = jump_next_next;
     edge_data_out[edge_index].face_id = min(face_id, face_next);
 }

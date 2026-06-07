@@ -222,6 +222,7 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
+// TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -454,9 +455,14 @@ export async function run_shader(
 
 	// --- Face Tracing Init (directed edges + face ids) ---
 
+	startTime = performance.now();
+	console.log();
+	console.log('Creating Face Trace Buffers:');
 	// making buffers (needed to know how many connections there were in order to know what size to make these buffers)
 	const connectionCountNumber = await readU32Buffer(device, buffers.connectionCount);
 	const faceBuffers = await createFaceTraceBuffers(device, connectionCountNumber);
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	startTime = performance.now();
 	console.log();
@@ -473,8 +479,8 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Pointer Jumping ---
-	// const faceTracePasses = Math.ceil(Math.log2(Math.max(1, connectionCountNumber)));
-	const faceTracePasses = 100;
+	const faceTracePasses = Math.ceil(Math.log2(Math.max(1, connectionCountNumber)));
+	// const faceTracePasses = 500;
 	let connectionDataIn = faceBuffers.edgeDataPing;
 	let connectionDataOut = faceBuffers.edgeDataPong;
 	let finalConnectionData = connectionDataOut;
@@ -718,7 +724,7 @@ async function createFaceTraceBuffers(
 	device: GPUDevice,
 	connectionCount: number
 ): Promise<FaceTraceBuffers> {
-	const edgeDataBufferSize = connectionCount * (6 + 4) * Float32Array.BYTES_PER_ELEMENT; // u32 * 6 + vec4f
+	const edgeDataBufferSize = connectionCount * (4 + 4) * Float32Array.BYTES_PER_ELEMENT; // u32 * 4 + vec4f
 
 	const edgeDataPing = device.createBuffer({
 		label: 'edge data ping',

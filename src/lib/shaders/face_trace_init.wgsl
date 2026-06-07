@@ -1,8 +1,4 @@
 /*
- ? This code is mostly LLM-written, and might be worth a rewrite.
-*/
-
-/*
 Face tracing init pass.
 
 Builds a directed edge graph (one edge per pixel-direction) and chooses the next
