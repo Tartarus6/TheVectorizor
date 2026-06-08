@@ -13,176 +13,6 @@ import face_trace_init_shader from '$lib/shaders/face_trace_init.wgsl?raw';
 import face_trace_jump_shader from '$lib/shaders/face_trace_jump.wgsl?raw';
 import { faceBuffersToSvg } from '$lib/face_svg';
 
-/*
-Idea for turning edges into shapes:
-
-For each pixel with a degree greater than 2 (meaning more than 2 neighbors), say that pixel "points to"
-the pixel that is the soonest clockwise pixel (or counterclockwise it shouldnt matter as long as it's
-consistent).
-
-͟I͟s͟s͟u͟e͟ ͟1: not sure how to define which direction to start with (easy to tell by looking at it, but not
-	sure how to define it)
-͟I͟s͟s͟u͟e͟ ͟2: Need to make sure every pixel marked as an edge has at least a degree of 2, otherwise edge
-	tracing isn't complete yet, and it won't be possible to turn that edge into part of a closed shape.
-
-For Example:
-	╭───────────────────────────────────────────╮
-	│Key:                                       │
-	│	" ■ " → non-edge pixel (top left shape) │
-	│	" ● " → non-edge pixel (bottom shape)   │
-	│	" ▲ " → non-edge pixel (top right shape)│
-	│	"███" → edge pixel                      │
-	╰───────────────────────────────────────────╯
-
- ╭─1──2──3──4──5──6─╮
-A│ ■  ■  ■ ███ ▲  ▲ │
-B│███ ■  ■ ███ ▲  ▲ │
-C│ ● ███ ■ ███ ▲  ▲ │
-D│ ●  ● ████████████│
-E│ ●  ●  ●  ●  ●  ● │
- ╰──────────────────╯
-
-We would want to split the pixels above into 3 shapes: the bottom ones, the top left ones, and the top right
-ones. In order to make those shapes, we can connect:
-- ■: A4 ←→ B4 ←→ C4 ←→ D4 ←→ D3 ←→ C2 ←→ B1
-- ●: B1 ←→ C2 ←→ D3 ←→ D4 ←→ D5 ←→ D6
-- ▲: D6 ←→ D5 ←→ D4 ←→ C4 ←→ B4 ←→ A4
-
-In the shapes described above, D4 is treated as a "hub" node, so it is included in all 3. I'm not sure how to
-make sure that an algorithm to make the shapes will include that central pixel instead of, for example, using
-these edges instead (skipping the hub node sometimes):
-- ■: A4 ←→ B4 ←→ C4 ←→ D3 ←→ C2 ←→ B1
-- ●: B1 ←→ C2 ←→ D3 ←→ D4 ←→ D5 ←→ D6
-- ▲: D6 ←→ D5 ←→ C4 ←→ B4 ←→ A4
-
-Notable things for an algorithm:
-- The connections described above aren't closed, but that's just because i wanted a short example. We want for
-	All shapes to be closed loops. Though, we might want to somehow treat the border of the image as an edge?
-	In that case, it would be closed. I think that would make sense.
-- The connections descrived above are 2-way, since the outline of a shape isn't directional.
-- In the diagram above, D3, C4, D4, and D5 are the high-degree pixels.
-- D4 is the "hub" pixel. not sure how to identify that, since D3, D4, and D5 all have a degree of 3, and C4
-	even has a degree of 4. So idk how to define a hub node such that it would pick D4.
-
-Maybe could use the theta values of each edge pixel to see which pixels they "point towards", and look for pixels
-that are very "pointed at" to find the "hub" pixels? (each pixel would point in 2 directions, since forward and
-backward along edge are arbitrary)
-
-
-Another separate issue is how to deal with staircase pixel patterns
-
- ╭─1──2──3──4──5─╮
-A│███ ▲  ▲  ▲  ▲ │
-B│██████ ▲  ▲  ▲ │
-C│ ● ██████ ▲  ▲ │
-D│ ●  ● ██████ ▲ │
-E│ ●  ●  ● ██████│
- ╰───────────────╯
-
-This needs to be identified as a single edge. So like:
-A1 ←→ B1 ←→ B2 ←→ C2 ←→ C3 ←→ D3 ←→ D4 ←→ E4 ←→ E5
-
-Pixels do need to be able to connect diagonally (since my edge pixels often have diagonal-only connections). But
-sometimes it does end up as a staircase like above. So the example above should be recognised as a single edge,
-rather than 2 diagonal edges, or 2 diagonal edges with a staircase on top, or whatever else.
-
-Whatever solution we end up with needs to be efficient, since this project is focused on optimization and
-efficiency. So a complex solution like checking all the neighbors of each neighbor to check whether this connection
-is needed or not would be too inefficient.
-
-
-
-
-͟U͟p͟d͟a͟t͟e: I have solved the issue of finding the right neighbors. The shader passes now store the connections between
-        the edge pixels. So reconstructing the path that the edge tracing steps took is easy. This solves the
-        staircase issue.
-
-The issue that remains is tracing the closed faces in the edge pixel graph, and getting the color for each face.
-
-So the idea is to use *Pointer Jumping* to have a shader that combined edges into pairs, then pairs of pairs, etc.,
-always picking the "counterclockwise" option.
-
-The trick is that each directed edge corresponds to a closed face.
- ╭1─2─3─4─5─╮
-A│  ↙↘  ↙↘  │
-B│↓↗  ↓↗  ↖↓│
-C│↓↑  ↓↑  ↑↓│
-D│↑↘  ↙↑  ↙↑│
-E│  ↖↗  ↖↗  │
- ╰──────────╯
-
-The shader will have some data structure like the one shown below:
-```wgsl
-struct GraphData {
-    next_edge : array<u32>,
-    face_id   : array<u32>,
-};
-```
-The first pass of the shader will run with one thread per edge connection. It will choose the next "counterclockwise"
-connection, and write that as the `next_edge` for the thread's edge connection. It will then take the minimum "ID" of
-the 2 edge connections (itsself and the one it just connected to), and write that as the face ID for the thread's edge
-pixel.
-
-Then the next pass will again have one thread per edge connection. It will look at the previously chosen `next_edge`
-for the thread's edge connection, and then look at the `next_edge` for that edge connection. Then, it will write that
-"next next" as the new next for the thread's edge connection, doubling the distance that's been checked. It will also
-look at the face ID for the thread's edge connection as well as for the new next, and update the thread's face ID to be
-the min of the two.
-
-This will be repeated for some number of iterations until every closed shape has been explored (probably just choose
-some arbitrary number of passes that should be enough doublings. something like 5-8, idk). By the end, each edge
-connection will correspond to some face ID.
-
-͟I͟s͟s͟u͟e͟ ͟1: Color
-This one is pretty easy to solve.
-When faces are traced, we need to figure out what color each should be filled in with.
-
-For each edge connection that we look at in the face tracing passes, we can sample the color texture 90 degrees offset
-from the direction of the connection at something like a distance of 2 pixels from the connection itsself (in order to
-make sure we are getting the internal color, not just edge weirdness). Then each time we do a doubling, we can take the
-average of the 2 samples, and write that as the edge's color
-
-That strategy might not work, due to unpredictable comparisons. I think each connection on a face might end up with
-slightly different average colors.
-So instead, we can just do all of the face tracing, then do another set of passes afterwards. We can split the connectiosn
-for each face into pairs, and average them. Then average the pairs, then pairs of pairs, etc. And this should allow us to
-get a single average color.
-
-Another idea would be to just use the thing mentioned before, with averaging the colors within the face tracing passes,
-then just picking the color of the connection corresponding to the face ID as the color for the shape. If enough passes
-happen, all of the connections should have approximately the same color. It should be close enough.
-
-
-͟I͟s͟s͟u͟e͟ ͟2: Infinitely Large Faces
-When certain edges are traced, they will produce an inverted shape with infinite area.
- ╭1─2─3─4─5─6─7─╮
-A│              │
-B│    ↙→←→←↘    │
-C│  ↓↗      ↖↓  │
-D│  ↓↑      ↑↓  │
-E│  ↑↘      ↙↑  │
-F│    ↖→←→←↗    │
-G│              │
- ╰──────────────╯
-
-When the graph above is traced, there will be 2 faces created. One face will be the center circle, and the other will
-be an open shape that is everything except that circle.
-
-This needs to be dealt with somehow. It might just work to check the area of the resulting directed shape, and if it's
-infinite, then throw away the shape?
-
-
-͟I͟s͟s͟u͟e͟ ͟3: Z-Ordering
-With a shader-based face tracing, it will have to be decided which shapes are on top of each other.
-
-This wasn't an issue with the CPU approach, since it iterated through pixels from top left corner to bottom right
-corner. This strategy happens to always identify the shapes in the correct order to draw them.
-
-We could do this on the CPU side, using the same method that worked before, but having already traced the faces. As
-the CPU algorithm builds the final SVG, we can just have it do so from top left to bottom right. That way it will
-(hopefully) correctly order the shapes.
-*/
-
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
 // DONE: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
@@ -211,6 +41,10 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: fix junctinons kinda pulling edges in in subpixel offsetting (like the bigger line in a t-junction will get pulled towards the smaller one, like a stitch getting pulled tight)
 // TODO: add background removal. primarily for when the background was transparent, so there isn't a mostly transparent square around the svg
 // TODO: fix complex images not working. something goes wrong with more complex images (like pictures), and a lot of the svg (usually the bottom half) doesnt get created
+// TODO: add downsampling option to improve tracing performance on more complex images
+// TODO: fix lasso loop issue. (check `md/lasso_problem.md`)
+// TODO: special offsetting for the edge on the outside (they should be on the outer edge instead of the center of their pixels)
+// TODO: transparent holes in shapes do not work (since they are transparent, the surrounding shape is just filled, with an invisible transparent shape on top)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -226,6 +60,11 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
 // TODO: check how color averaging works (for chosing the svg colors) and improve it if reasonable
 // TODO: major cleanup (reorganizing code, adding lots of comments, renaming things, removing unneded things, etc.)
+// TODO: update readme
+// TODO: downloadable svg output
+// TODO: multiple file input (maybe zip them together)
+// TODO: do something to guarantee that no user info touches the server. for user security and site security, as well as guaranteeing the intended behaviour
+// TODO: add ability to paste images from clipboard
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
