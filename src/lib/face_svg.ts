@@ -146,7 +146,7 @@ export async function faceBuffersToSvg(
 			});
 
 			const d = `${commands.join(' ')} Z`;
-			return `<path fill="${path.color}" d="${d}" />`;
+			return `<path fill="${path.color}" stroke="${path.color}" stroke-width="0.5px" d="${d}" />`;
 		})
 		.join('');
 

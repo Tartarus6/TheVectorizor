@@ -45,6 +45,7 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: fix lasso loop issue. (check `md/lasso_problem.md`)
 // TODO: special offsetting for the edge on the outside (they should be on the outer edge instead of the center of their pixels)
 // TODO: transparent holes in shapes do not work (since they are transparent, the surrounding shape is just filled, with an invisible transparent shape on top)
+// TODO: tiny gaps are left between shapes, causing some renderers to show a line between them (maybe could just add a low-width stroke of the same color?)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -65,6 +66,7 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: multiple file input (maybe zip them together)
 // TODO: do something to guarantee that no user info touches the server. for user security and site security, as well as guaranteeing the intended behaviour
 // TODO: add ability to paste images from clipboard
+// TODO: speed up creating face trace buffers. currently responsible for like 50% of execution time
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -176,6 +178,9 @@ export async function run_shader(
 	);
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
+	// -- OkLab → Srgb (just for visualization)
+	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
 
 	// --- Mean Shift Cluster Steps ---
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
@@ -369,14 +374,14 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	// -- OkLab → Srgb (just for visualization)
-	await oklabToSrgbPass(
-		device,
-		pipelines.oklabToSrgb,
-		num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
-		false,
-		clusterCanvas
-	);
+	// // -- OkLab → Srgb (just for visualization)
+	// await oklabToSrgbPass(
+	// 	device,
+	// 	pipelines.oklabToSrgb,
+	// 	num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
+	// 	false,
+	// 	clusterCanvas
+	// );
 
 	// -- Edge Visualization
 	await edgeVisualizationPass(device, pipelines.edgeVisualization, final_edge_texture, edgeCanvas);
@@ -902,15 +907,13 @@ async function oklabToSrgbPass(
 	const bindGroup = device.createBindGroup({
 		label: 'oklab to srgb ping bind group',
 		layout: pipeline.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: texture.createView() },
-			{ binding: 1, resource: { buffer: debugUniformsBuffer } }
-		]
+		entries: [{ binding: 0, resource: texture.createView() }]
 	});
 
 	context.configure({
 		device,
-		format: canvas_format
+		format: canvas_format,
+		alphaMode: 'premultiplied'
 	});
 
 	const renderPassDescriptor: GPURenderPassDescriptor = {
@@ -1477,7 +1480,8 @@ async function edgeVisualizationPass(
 
 	context.configure({
 		device,
-		format: canvas_format
+		format: canvas_format,
+		alphaMode: 'premultiplied'
 	});
 
 	const renderPassDescriptor: GPURenderPassDescriptor = {
