@@ -25,16 +25,11 @@
 	let svg_preview: HTMLImageElement | undefined = $state();
 	let canvas_scale = $state(3);
 
-	const onFileSelected = (e: any) => {
+	const onFileSelected = async (e: any) => {
 		const file = e.target.files[0];
-		let reader = new FileReader();
-		reader.readAsDataURL(file);
-		reader.onload = async (e) => {
-			uploadedImageUrl = e.target!.result;
 
-			const res = await fetch(uploadedImageUrl as string);
-			image = await createImageBitmap(await res.blob());
-		};
+		uploadedImageUrl = URL.createObjectURL(file);
+		image = await createImageBitmap(file);
 		console.log(uploadedImageUrl!);
 	};
 
@@ -142,12 +137,12 @@
 				type="number"
 				bind:value={num_edge_trace_passes}
 				min={0}
-				max={2000}
+				max={10000}
 				step={1}
 				class="border-2 border-white"
 			/>
 		</div>
-		<input type="range" bind:value={num_edge_trace_passes} min={0} max={2000} step={1} />
+		<input type="range" bind:value={num_edge_trace_passes} min={0} max={10000} step={1} />
 	</div>
 
 	<button

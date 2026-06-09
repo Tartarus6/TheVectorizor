@@ -54,15 +54,15 @@ fn blur_horizontal(in: VsOut) -> @location(0) vec4f {
         let x = clamp(i32(texel.x) + i, 0, i32(dims.x) - 1);
         let sample = textureLoad(input_tex, vec2i(x, i32(texel.y)), 0);
         let idx = u32(abs(i));
-        sum_rgb += sample.rgb * sample.a * gaussian_weights[idx];
+        sum_rgb += sample.rgb * gaussian_weights[idx];
         sum_a += sample.a * gaussian_weights[idx];
     }
 
-    if (sum_a > 0.0) {
-        sum_rgb /= sum_a;
-    } else {
-        sum_rgb = vec3f(0.0);
-    }
+    // if (sum_a > 0.0) {
+    //     sum_rgb /= sum_a;
+    // } else {
+    //     sum_rgb = vec3f(0.0);
+    // }
 
     return vec4f(sum_rgb, sum_a);
 }
@@ -87,15 +87,15 @@ fn blur_vertical(in: VsOut) -> @location(0) vec4f {
         let y = clamp(i32(texel.y) + i, 0, i32(dims.y) - 1);
         let sample = textureLoad(input_tex, vec2i(i32(texel.x), y), 0);
         let idx = u32(abs(i));
-        sum_rgb += sample.rgb * sample.a * gaussian_weights[idx];
+        sum_rgb += sample.rgb * gaussian_weights[idx];
         sum_a += sample.a * gaussian_weights[idx];
     }
 
-    if (sum_a > 0.0) {
-        sum_rgb = sum_rgb / sum_a;
-    } else {
-        sum_rgb = vec3f(0.0);
-    }
+    // if (sum_a > 0.0) {
+    //     sum_rgb = sum_rgb / sum_a;
+    // } else {
+    //     sum_rgb = vec3f(0.0);
+    // }
 
     return vec4f(sum_rgb, sum_a);
 }

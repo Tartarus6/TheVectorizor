@@ -24,6 +24,7 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: (maybe) switch to holding density scores in a texture rather than a general array buffer
 // TODO: (maybe) turn update_density_scores into a fragment shader
 // TODO: (maybe) turn mean_shift_cluster_step into a fragment shader
+// TODO: speed up creating face trace buffers. currently responsible for like 50% of execution time
 
 // EDGE DETECTION TODOS
 // DONE: filter maxima to find only important edges
@@ -53,20 +54,19 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // DONE: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 // DONE: (maybe) remove all or some of the readback buffers. are they needed/used?
 // DONE: (question) how exactly do layers work in an svg? what needs to be done to make sure that the stuff on top in the image is drawn on top in the svg?
-// TODO: fix clustering messing up outer edges of certain images. it seems like certain images that have white next to a transparent background have their outer edges really mangled. (note for tar: beaSticker_0.png is an example image with this issue)
-// TODO: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
+// DONE: fix clustering messing up outer edges of certain images. it seems like certain images that have white next to a transparent background have their outer edges really mangled. (note for tar: beaSticker_0.png is an example image with this issue)
+// DONE: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
+// DONE: check how color averaging works (for chosing the svg colors) and improve it if reasonable
 // TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 // TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
-// TODO: check how color averaging works (for chosing the svg colors) and improve it if reasonable
 // TODO: major cleanup (reorganizing code, adding lots of comments, renaming things, removing unneded things, etc.)
 // TODO: update readme
 // TODO: downloadable svg output
 // TODO: multiple file input (maybe zip them together)
 // TODO: do something to guarantee that no user info touches the server. for user security and site security, as well as guaranteeing the intended behaviour
 // TODO: add ability to paste images from clipboard
-// TODO: speed up creating face trace buffers. currently responsible for like 50% of execution time
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is

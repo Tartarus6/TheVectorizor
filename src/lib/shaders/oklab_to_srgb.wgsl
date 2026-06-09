@@ -44,7 +44,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     let srgb = linear_to_srgb(linear);
 
     // return the resulting color
-    return vec4f(srgb * oklab.w, oklab.w);
+    return vec4f(srgb, oklab.w);
 }
 
 // TODO: shouldnt anything with L of 0 be black? it isnt
