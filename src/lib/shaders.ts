@@ -123,6 +123,7 @@ type Pipelines = {
 };
 
 export async function run_shader(
+	blurCanvas: GPUCanvasContext,
 	clusterCanvas: GPUCanvasContext,
 	edgeCanvas: GPUCanvasContext,
 	imageBitMap: ImageBitmap,
@@ -179,8 +180,8 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	// -- OkLab → Srgb (just for visualization)
-	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
+	// -- OkLab → Srgb (blur visualization)
+	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, blurCanvas);
 
 	// --- Mean Shift Cluster Steps ---
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
@@ -224,6 +225,9 @@ export async function run_shader(
 		endTime = performance.now();
 		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	// -- OkLab → Srgb (cluster visualization)
+	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
 
 	// --- Gaussian Gradient ---
 	startTime = performance.now();

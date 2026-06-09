@@ -46,6 +46,7 @@
 		"vitest-browser-svelte": "^2.1.0"
 	},
 	"dependencies": {
+		"jszip": "^3.10.1",
 		"svgo": "^4.0.1"
 	}
 }
