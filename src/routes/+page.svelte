@@ -17,6 +17,16 @@
 
 	let jobs = $state<Job[]>([]);
 
+	// Derived state for UI
+	let pendingJobs = $derived(jobs.filter((j) => j.status === 'pending'));
+	let doneJobs = $derived(jobs.filter((j) => j.status === 'done'));
+	let hasPending = $derived(pendingJobs.length > 0);
+	let hasDone = $derived(doneJobs.length > 0);
+	let canSubmit = $derived(hasPending && !working);
+	let canDownload = $derived(hasDone && !working);
+
+	let working = $state(false);
+
 	let bitmap: ImageBitmap | undefined = $state();
 	let svgUrl: string | undefined = $state(); // just for visualizing
 
@@ -32,8 +42,6 @@
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
 	let canvas_scale = $state(3);
-
-	let working = $state(false);
 
 	async function onFilesSelected(e: Event) {
 		const files = Array.from((e.target as HTMLInputElement).files ?? []);
@@ -73,42 +81,35 @@
 		target.style.imageRendering = 'pixelated';
 	}
 
-	async function on_shader_run() {
-		if (!image_canvas || !blurred_canvas || !clustered_canvas || !edge_canvas || working) {
-			return;
-		}
+	// Helper: process a single job
+	async function processJob(job: Job) {
+		try {
+			job.status = 'processing';
+			const bitmap = await createImageBitmap(job.file);
 
-		working = true;
-
-		for (const job of jobs) {
-			// skip jobs that aren't pending
-			if (job.status != 'pending') {
-				continue;
+			// Set up canvases for this job
+			if (!image_canvas || !blurred_canvas || !clustered_canvas || !edge_canvas) {
+				throw new Error('Canvas elements missing');
 			}
 
-			job.status = 'processing';
-
-			bitmap = await createImageBitmap(job.file);
-
-			// debug
 			image_canvas.width = bitmap.width;
 			image_canvas.height = bitmap.height;
 			image_canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+
 			blurred_canvas.width = bitmap.width;
 			blurred_canvas.height = bitmap.height;
 			clustered_canvas.width = bitmap.width;
 			clustered_canvas.height = bitmap.height;
 			edge_canvas.width = bitmap.width;
 			edge_canvas.height = bitmap.height;
+
 			const blurred_ctx = blurred_canvas.getContext('webgpu');
 			const clustered_ctx = clustered_canvas.getContext('webgpu');
 			const edge_ctx = edge_canvas.getContext('webgpu');
 			if (!blurred_ctx || !clustered_ctx || !edge_ctx) {
-				alert('context didnt work');
-				break;
+				throw new Error('WebGPU context not available');
 			}
 
-			// const [success, svg] = await run_shader
 			let startTime = performance.now();
 			const [success, svg] = await run_shader(
 				blurred_ctx,
@@ -124,67 +125,67 @@
 			let endTime = performance.now();
 			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-			if (success) {
-				startTime = performance.now();
-				const { data: optimizedSvg } = optimize(svg);
-				endTime = performance.now();
-				console.log(`Optimize execution time: ${(endTime - startTime).toFixed(2)}ms`);
+			if (!success) throw new Error('Shader failed');
 
-				job.svgBlob = new Blob([optimizedSvg], { type: 'image/svg+xml' });
+			startTime = performance.now();
+			const { data: optimizedSvg } = optimize(svg);
+			endTime = performance.now();
+			console.log(`Optimize execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-				job.status = 'done';
+			job.svgBlob = new Blob([optimizedSvg], { type: 'image/svg+xml' });
+			job.status = 'done';
 
-				svgUrl = URL.createObjectURL(job.svgBlob); // just for visualization
-			}
+			// Update preview (clean up old URL)
+			if (svgUrl) URL.revokeObjectURL(svgUrl);
+			svgUrl = URL.createObjectURL(job.svgBlob);
+		} catch (err) {
+			console.error(err);
+			job.status = 'error';
+		}
+	}
+
+	async function on_shader_run() {
+		if (!hasPending || working) return;
+
+		working = true;
+		// Take a snapshot of only pending jobs at this moment
+		const pendingSnapshot = jobs.filter((j) => j.status === 'pending');
+
+		for (const job of pendingSnapshot) {
+			await processJob(job);
+			// Give UI a chance to update between jobs
+			await new Promise((resolve) => setTimeout(resolve, 0));
 		}
 
-		// set working complete
 		working = false;
 	}
 
 	async function downloadAll() {
-		// if there were no jobs, or shaders currently working, skip
-		if (jobs.length == 0 || working) return;
+		if (!hasDone || working) return;
 
-		// if there was only one job, then download that file alone, unzipped
-		if (jobs.length == 1) {
-			let job = jobs[0];
+		const completed = jobs.filter((j) => j.status === 'done');
+		if (completed.length === 0) return;
+
+		// Single job: download as plain SVG
+		if (completed.length === 1) {
+			const job = completed[0];
 			if (!job.svgBlob) return;
-
 			const name = job.file.name.replace(/\.[^.]+$/, '') + '.svg';
 			downloadBlob(job.svgBlob, name);
-
-			// clear jobs list
-			jobs = [];
-
-			return;
-		}
-
-		const zip = new JSZip();
-
-		let some_done_jobs = false; // store whether there are any jobs that are done, otherwise itll just be an empty zip
-		// for each job, get its svg and add it to the zip
-		for (const job of jobs) {
-			if (!job.svgBlob) continue;
-
-			some_done_jobs = true;
-
-			const name = job.file.name.replace(/\.[^.]+$/, '') + '.svg';
-
-			zip.file(name, job.svgBlob);
-		}
-
-		// only download zip if there were some complete jobs
-		if (some_done_jobs) {
-			const blob = await zip.generateAsync({
-				type: 'blob'
-			});
-
+		} else {
+			// Multiple jobs: create zip
+			const zip = new JSZip();
+			for (const job of completed) {
+				if (!job.svgBlob) continue;
+				const name = job.file.name.replace(/\.[^.]+$/, '') + '.svg';
+				zip.file(name, job.svgBlob);
+			}
+			const blob = await zip.generateAsync({ type: 'blob' });
 			downloadBlob(blob, 'vectorized-images.zip');
-
-			// clear jobs list
-			jobs = [];
 		}
+
+		// Remove only completed jobs, keep pending/error ones
+		jobs = jobs.filter((j) => j.status !== 'done');
 	}
 
 	function downloadBlob(blob: Blob, filename: string) {
@@ -285,12 +286,17 @@
 
 	<button
 		onmousedown={on_shader_run}
-		class="w-fit {working ? 'bg-gray-500' : 'cursor-pointer bg-purple-500'} p-2"
+		disabled={!canSubmit}
+		class="w-fit {!canSubmit ? 'bg-gray-500' : 'cursor-pointer bg-purple-500'} p-2"
 	>
 		<span>shader pass</span>
 	</button>
 
-	<button onmousedown={downloadAll} class="w-fit cursor-pointer bg-green-500 p-2">
+	<button
+		onmousedown={downloadAll}
+		disabled={!canDownload}
+		class="w-fit {!canDownload ? 'bg-gray-500' : 'cursor-pointer bg-green-500'} p-2"
+	>
 		<span>download svg</span>
 	</button>
 	<div class="flex w-fit flex-col bg-slate-600 p-2">
