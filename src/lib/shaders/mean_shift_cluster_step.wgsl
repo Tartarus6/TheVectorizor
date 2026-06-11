@@ -2,19 +2,12 @@ struct FloatUniforms {
     base_bandwidth: f32,
 }
 
-struct UintUniforms {
-    tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-    tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-    tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-}
-
 
 @group(0) @binding(0) var<uniform> float_uniforms: FloatUniforms;
 @group(0) @binding(1) var<storage,read> input_mean_density_sum: array<f32>;
-@group(0) @binding(2) var<uniform> uint_uniforms: UintUniforms;
-@group(0) @binding(3) var input_colors: texture_2d<f32>;
-@group(0) @binding(4) var<storage,read_write> input_density_scores: array<f32>;
-@group(0) @binding(5) var output_colors: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(2) var input_colors: texture_2d<f32>;
+@group(0) @binding(3) var<storage,read_write> input_density_scores: array<f32>;
+@group(0) @binding(4) var output_colors: texture_storage_2d<rgba16float, write>;
 
 
 const PI = 3.1415926535;
@@ -27,7 +20,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let mean_density_score = input_mean_density_sum[0] / f32(dims.x * dims.y);
 
     // apply tile offsets to get this thread's pixel's position
-    let pos = vec2u(id.x + uint_uniforms.tile_x, id.y + uint_uniforms.tile_y);
+    let pos = vec2u(id.xy);
 
     // if pixel not within texture, return
     if pos.x >= dims.x || pos.y >= dims.y {return;}

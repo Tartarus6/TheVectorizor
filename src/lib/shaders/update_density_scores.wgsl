@@ -2,17 +2,10 @@ struct FloatUniforms {
     base_bandwidth: f32,
 }
 
-struct UintUniforms {
-    tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-    tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-    tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-}
-
 @group(0) @binding(0) var<uniform> float_uniforms: FloatUniforms;
-@group(0) @binding(1) var<uniform> uint_uniforms: UintUniforms;
-@group(0) @binding(2) var input_colors: texture_2d<f32>;
-@group(0) @binding(3) var<storage, read_write> output_density_scores: array<f32>;
-@group(0) @binding(4) var output_density_scores_texture: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(1) var input_colors: texture_2d<f32>;
+@group(0) @binding(2) var<storage, read_write> output_density_scores: array<f32>;
+@group(0) @binding(3) var output_density_scores_texture: texture_storage_2d<rgba16float, write>;
 
 
 const PI = 3.1415926535;
@@ -24,7 +17,7 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     let dims = textureDimensions(input_colors);
 
     // apply tile offsets to get this thread's pixel's position
-    let pos = vec2u(id.x + uint_uniforms.tile_x, id.y + uint_uniforms.tile_y);
+    let pos = vec2u(id.xy);
 
     if pos.x >= dims.x || pos.y >= dims.y {return;}
 

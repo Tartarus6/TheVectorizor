@@ -128,7 +128,6 @@ export async function run_shader(
 	edgeCanvas: GPUCanvasContext,
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
-	tile_size: number,
 	blur_radius: number,
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
@@ -200,8 +199,7 @@ export async function run_shader(
 			buffers.densityScores,
 			textures.densityScoresTexture,
 			size,
-			base_bandwidth,
-			tile_size
+			base_bandwidth
 		);
 
 		const meanDensityScoreBuffer = await getMeanDensityScore(
@@ -218,8 +216,7 @@ export async function run_shader(
 			clusterOutput,
 			buffers.densityScores,
 			size,
-			base_bandwidth,
-			tile_size
+			base_bandwidth
 		);
 
 		endTime = performance.now();
@@ -951,8 +948,7 @@ async function densityScoresPass(
 	densityScoresBuffer: GPUBuffer,
 	densityScoresTexture: GPUTexture,
 	size: ImageSize,
-	baseBandwidth: number,
-	tileSize: number
+	baseBandwidth: number
 ): Promise<void> {
 	/*
 	struct Uniforms {
@@ -960,24 +956,10 @@ async function densityScoresPass(
 	}
 	*/
 	const floatUniformsData = new Float32Array([baseBandwidth]);
-	/*
-	struct UintUniforms {
-		tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-		tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-		tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-	}
-	*/
-	const uintUniformsData = new Uint32Array([0, 0, tileSize]);
 
 	const floatUniformsBuffer = device.createBuffer({
 		label: 'float uniforms buffer',
 		size: floatUniformsData.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-
-	const uintUniformsBuffer = device.createBuffer({
-		label: 'uint uniforms buffer',
-		size: uintUniformsData.byteLength,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 	});
 
@@ -986,36 +968,26 @@ async function densityScoresPass(
 		layout: pipeline.getBindGroupLayout(0),
 		entries: [
 			{ binding: 0, resource: floatUniformsBuffer },
-			{ binding: 1, resource: uintUniformsBuffer },
-			{ binding: 2, resource: texture.createView() },
-			{ binding: 3, resource: densityScoresBuffer },
-			{ binding: 4, resource: densityScoresTexture.createView() }
+			{ binding: 1, resource: texture.createView() },
+			{ binding: 2, resource: densityScoresBuffer },
+			{ binding: 3, resource: densityScoresTexture.createView() }
 		]
 	});
 
 	device.queue.writeBuffer(floatUniformsBuffer, 0, floatUniformsData);
 
-	for (let tileX = 0; tileX < size.width; tileX += tileSize) {
-		for (let tileY = 0; tileY < size.height; tileY += tileSize) {
-			// update the uint uniforms buffer for this pass
-			uintUniformsData[0] = tileX;
-			uintUniformsData[1] = tileY;
-			device.queue.writeBuffer(uintUniformsBuffer, 0, uintUniformsData);
+	const encoder = device.createCommandEncoder({
+		label: 'update density scores encoder'
+	});
+	const pass = encoder.beginComputePass({
+		label: 'update density scores compute pass'
+	});
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
 
-			const encoder = device.createCommandEncoder({
-				label: 'update density scores encoder'
-			});
-			const pass = encoder.beginComputePass({
-				label: 'update density scores compute pass'
-			});
-			pass.setPipeline(pipeline);
-			pass.setBindGroup(0, bindGroup);
-			pass.dispatchWorkgroups(Math.ceil(tileSize / 16), Math.ceil(tileSize / 16));
-			pass.end();
-
-			device.queue.submit([encoder.finish()]);
-		}
-	}
+	device.queue.submit([encoder.finish()]);
 }
 
 async function getMeanDensityScore(
@@ -1120,8 +1092,7 @@ async function meanShiftClusterPass(
 	textureOut: GPUTexture,
 	densityScoresBuffer: GPUBuffer,
 	size: ImageSize,
-	baseBandwidth: number,
-	tileSize: number
+	baseBandwidth: number
 ): Promise<void> {
 	/*
 	struct FloatUniforms {
@@ -1129,24 +1100,10 @@ async function meanShiftClusterPass(
 	}
 	*/
 	const floatUniformsData = new Float32Array([baseBandwidth]);
-	/*
-	struct UintUniforms {
-		tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-		tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-		tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-	}
-	*/
-	const uintUniformsData = new Uint32Array([0, 0, tileSize]);
 
 	const floatUniformsBuffer = device.createBuffer({
 		label: 'mean shift cluster float uniforms buffer',
 		size: floatUniformsData.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-
-	const uintUniformsBuffer = device.createBuffer({
-		label: 'mean shift cluster uint uniforms buffer',
-		size: uintUniformsData.byteLength,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 	});
 
@@ -1156,35 +1113,26 @@ async function meanShiftClusterPass(
 		entries: [
 			{ binding: 0, resource: floatUniformsBuffer },
 			{ binding: 1, resource: meanDensityScoreBuffer },
-			{ binding: 2, resource: uintUniformsBuffer },
-			{ binding: 3, resource: textureIn.createView() },
-			{ binding: 4, resource: densityScoresBuffer },
-			{ binding: 5, resource: textureOut.createView() }
+			{ binding: 2, resource: textureIn.createView() },
+			{ binding: 3, resource: densityScoresBuffer },
+			{ binding: 4, resource: textureOut.createView() }
 		]
 	});
 
 	device.queue.writeBuffer(floatUniformsBuffer, 0, floatUniformsData);
 
-	for (let tileX = 0; tileX < size.width; tileX += tileSize) {
-		for (let tileY = 0; tileY < size.height; tileY += tileSize) {
-			uintUniformsData[0] = tileX;
-			uintUniformsData[1] = tileY;
-			device.queue.writeBuffer(uintUniformsBuffer, 0, uintUniformsData);
+	const encoder = device.createCommandEncoder({
+		label: 'mean shift cluster encoder'
+	});
+	const pass = encoder.beginComputePass({
+		label: 'mean shift cluster compute pass'
+	});
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
 
-			const encoder = device.createCommandEncoder({
-				label: 'mean shift cluster encoder'
-			});
-			const pass = encoder.beginComputePass({
-				label: 'mean shift cluster compute pass'
-			});
-			pass.setPipeline(pipeline);
-			pass.setBindGroup(0, bindGroup);
-			pass.dispatchWorkgroups(Math.ceil(tileSize / 16), Math.ceil(tileSize / 16));
-			pass.end();
-
-			device.queue.submit([encoder.finish()]);
-		}
-	}
+	device.queue.submit([encoder.finish()]);
 }
 
 async function gaussianBlurPass(

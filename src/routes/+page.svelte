@@ -31,8 +31,6 @@
 	let svgUrl: string | undefined = $state(); // just for visualizing
 
 	let base_bandwidth = $state(0.05);
-	/// the width and height of the tiles that the texture is broken into for processing (in order to prevent the system from hanging until jobs are complete)
-	let tile_size = $state(512);
 	let num_cluster_passes = $state(5);
 	let num_edge_trace_passes = $state(300);
 	let blur_radius = $state(2);
@@ -117,7 +115,6 @@
 				edge_ctx,
 				bitmap,
 				base_bandwidth,
-				tile_size,
 				blur_radius,
 				num_cluster_passes,
 				num_edge_trace_passes
@@ -226,27 +223,6 @@
 			/>
 		</div>
 		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.0001} />
-	</div>
-
-	<div class="flex flex-col bg-slate-500 p-2">
-		<div class="flex flex-row gap-2">
-			<span>Tile Size:</span>
-			<input
-				type="number"
-				bind:value={tile_size}
-				min={1}
-				max={bitmap ? Math.max(bitmap.width, bitmap.height) : 512}
-				step={1}
-				class="border-2 border-white"
-			/>
-		</div>
-		<input
-			type="range"
-			bind:value={tile_size}
-			min={1}
-			max={bitmap ? Math.max(bitmap.width, bitmap.height) : 512}
-			step={1}
-		/>
 	</div>
 
 	<div class="flex flex-col bg-slate-500 p-2">
