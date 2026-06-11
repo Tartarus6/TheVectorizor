@@ -37,6 +37,8 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // DONE: (size optimizing) recognise curves, turn points along approx. continuous curves into a bezier
 // DONE: (size optimizing) reduce decimal points saved
 // DONE: (size optimizing) remove points that are really close to each other
+// DONE: tiny gaps are left between shapes, causing some renderers to show a line between them (maybe could just add a low-width stroke of the same color?)
+// DONE: special offsetting for the edge on the outside (they should be on the outer edge instead of the center of their pixels)
 // TODO: add a pass to check whether edge tracing is complete (check if all marked edge pixels have degree of at least 2) (need to do this while avoiding the 100ms waits of cpu-side reads)
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
 // TODO: fix junctinons kinda pulling edges in in subpixel offsetting (like the bigger line in a t-junction will get pulled towards the smaller one, like a stitch getting pulled tight)
@@ -44,9 +46,7 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: fix complex images not working. something goes wrong with more complex images (like pictures), and a lot of the svg (usually the bottom half) doesnt get created
 // TODO: add downsampling option to improve tracing performance on more complex images
 // TODO: fix lasso loop issue. (check `md/lasso_problem.md`)
-// TODO: special offsetting for the edge on the outside (they should be on the outer edge instead of the center of their pixels)
 // TODO: transparent holes in shapes do not work (since they are transparent, the surrounding shape is just filled, with an invisible transparent shape on top)
-// TODO: tiny gaps are left between shapes, causing some renderers to show a line between them (maybe could just add a low-width stroke of the same color?)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -57,14 +57,14 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // DONE: fix clustering messing up outer edges of certain images. it seems like certain images that have white next to a transparent background have their outer edges really mangled. (note for tar: beaSticker_0.png is an example image with this issue)
 // DONE: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
 // DONE: check how color averaging works (for chosing the svg colors) and improve it if reasonable
+// DONE: downloadable svg output
+// DONE: multiple file input (maybe zip them together)
 // TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 // TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
 // TODO: major cleanup (reorganizing code, adding lots of comments, renaming things, removing unneded things, etc.)
 // TODO: update readme
-// TODO: downloadable svg output
-// TODO: multiple file input (maybe zip them together)
 // TODO: do something to guarantee that no user info touches the server. for user security and site security, as well as guaranteeing the intended behaviour
 // TODO: add ability to paste images from clipboard
 

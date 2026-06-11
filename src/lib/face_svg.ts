@@ -36,14 +36,34 @@ export async function faceBuffersToSvg(
 	const subpixelPoints: EdgePoint[] = new Array(width * height);
 	const connectionsDataIdx: number[] = new Array(width * height);
 	for (let index = 0; index < width * height; index += 1) {
+		const x = index % width;
+		const y = Math.floor(index / width);
 		const base = index * 4;
 		const theta = gradTexData[base + 1];
 		const offset = gradTexData[base + 2];
 		const idx = edgeTexData[base + 2];
 
+		let subpixel_x;
+		let subpixel_y;
+		if (x == 0) {
+			subpixel_x = 0;
+		} else if (x == width - 1) {
+			subpixel_x = width;
+		} else {
+			subpixel_x = x + 0.5 + Math.cos(theta) * offset;
+		}
+
+		if (y == 0) {
+			subpixel_y = 0;
+		} else if (y == height - 1) {
+			subpixel_y = height;
+		} else {
+			subpixel_y = y + 0.5 + Math.sin(theta) * offset;
+		}
+
 		subpixelPoints[index] = {
-			x: (index % width) + 0.5 + Math.cos(theta) * offset,
-			y: Math.floor(index / width) + 0.5 + Math.sin(theta) * offset
+			x: subpixel_x,
+			y: subpixel_y
 		};
 		connectionsDataIdx[index] = idx;
 	}
