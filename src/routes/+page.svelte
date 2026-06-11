@@ -3,11 +3,6 @@
 	import { optimize } from 'svgo/browser';
 	import JSZip from 'jszip';
 
-	// TODO: add a thing thatll help show what the mean shift clustering has done by either making an apng or just toggling the visibility of the 2 images, so they can be viewed on top of one another
-	// TODO: figure out good ranges for the input variables (like blur radius), and maybe dont hardcode the limits
-	// TODO: remember the filename of the input, and name the svg the same
-	// TODO: organize complete vs. non-complete jobs so that downloading and uploading makes more sense (uploading a file, running, then uploading more files, then downloading causes the pending ones to be lost)
-
 	type Job = {
 		file: File;
 		image?: ImageBitmap;
