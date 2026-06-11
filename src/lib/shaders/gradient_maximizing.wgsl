@@ -42,6 +42,8 @@ out_edge_tex (rgba16uint):
 // TODO: move this LOW value to an external variable passed through uniforms
 const LOW: f32 = 0.1;
 const MAX_NEIGHBORS: u32 = 8u; // maximum packed neighbors (one per 8-connected direction)
+const CANDIDATES_SIZE: u32 = 6u;
+const PI = 3.1415926535;
 
 
 @compute @workgroup_size(16, 16)
@@ -113,21 +115,36 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     }
 
     // --- Finding Edge Seed Pixels ---
+    let section = get_section(theta, 8);
+
+    let dir = DIRS[section];
+    let perp = vec2i(-dir.y, dir.x);
+
+    let dir_next = DIRS[(section + 1u) % 8u];
+    let perp_next = vec2i(-dir_next.y, dir_next.x);
+
+    // ?NOTE: the error below is untrue, CANDIDATES_SIZE does properly work to define the array
+    var candidates = array<vec2i, CANDIDATES_SIZE>(
+    	dir_next,
+     	-dir_next,
+      	perp_next,
+       	-perp_next,
+        perp,
+        -perp
+    );
+
     var greatest = true; // store whether neighbor of greater magnitude has been found (set to false if neighbor is found)
     // for each neighboring pixel
-    for (var dx = -1; dx <= 1; dx ++) {
-        for (var dy = -1; dy <= 1; dy ++) {
-            // dont compare the pixel to itsself
-            if (dx == 0 && dy == 0) { continue; }
+    for (var i = 0u; i < CANDIDATES_SIZE; i = i + 1u) {
+	   	let candidate_offset = candidates[i];
 
-            let neighbor_pix = textureLoad(grad_tex, clamp(vec2i(texel) + vec2i(dx, dy), vec2i(0), vec2i(dims) - vec2i(1)), 0);
-            let neighbor_grad_mag = neighbor_pix.x;
+	    let neighbor_pix = textureLoad(grad_tex, clamp(vec2i(texel) + candidate_offset, vec2i(0), vec2i(dims) - vec2i(1)), 0);
+	    let neighbor_grad_mag = neighbor_pix.x;
 
-            // if the neighbor has a greater magnitude, then our pixel isn't the greatest
-            if (grad_mag <= neighbor_grad_mag) {
-                greatest = false;
-            }
-        }
+	    // if the neighbor has a greater magnitude, then our pixel isn't the greatest
+	    if (grad_mag <= neighbor_grad_mag) {
+	        greatest = false;
+	    }
     }
 
     // TODO: might be worth it to move subpixel shifting to the edge tracing steps to improve performance
@@ -153,26 +170,6 @@ fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
 	let neighbor_check_distance: f32 = 1.5;
     let theta = grad_pixel.y;
 
-
-    // ?NOTE: this commented out section is an older (maybe worse idk) method of calculating the subpixel offset
-    // // pick the neighbor with the greatest gradient magnitude
-    // var greatest_neighbor_pix = vec4f(0); // temporary, should be overwritten
-    // var greatest_neighbor_flip = 0;        // temporary, should be overwritten
-    // for (var flip = -1; flip <= 1; flip += 2) {
-    //     let neighbor_offset = f32(flip) * vec2f(cos(theta), sin(theta)) * neighbor_check_distance;
-    //     let neighbor_pos_uv = (vec2f(texel) + neighbor_offset) / vec2f(dims);
-
-    //     let neighbor_pix = textureSampleLevel(grad_tex, grad_sampler, neighbor_pos_uv, 0.0);
-
-    //     if (neighbor_pix.x > greatest_neighbor_pix.x) {
-    //         greatest_neighbor_pix = neighbor_pix;
-    //         greatest_neighbor_flip = flip;
-    //     }
-    // }
-
-    // // calculating subpixel_offset based off of greatest gradient neighbor
-    // let subpixel_offset = (greatest_neighbor_pix.x * f32(greatest_neighbor_flip) * neighbor_check_distance) / (grad_pixel.x + greatest_neighbor_pix.x);
-
     var weighted_offset_sum = 0f; // sum of pixel offsets in direction of gradient weighted by that pixel's gradient magnitude
     var weights_sum = 0f;         // sum of the gradient magnitudes (for normalizing)
 
@@ -195,6 +192,24 @@ fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
 
     // return 0;
     return subpixel_offset;
+}
+
+fn get_section(theta: f32, section_count: u32) -> u32 {
+    // change gradient direction into edge tangent direction
+    let edge_direction = theta + (PI / 2f);
+
+    // offset edge tangent direction so that each section will be centered around their primary direction
+    // e.g. section 0 with `section_count` of 4 includes (-π/4, π/4)
+    let offset_direction = edge_direction + (PI / f32(section_count));
+
+    // apply a scaling factor so that rounding produces `section_count` sections each rotation
+    let float_section = offset_direction * (f32(section_count) / (2f * PI));
+
+    // TODO: prevent possible overflow if theta is negative (theta shouldnt ever be negative, but it'd be smart to fix it here)
+    // truncate `float_section` to get integer, and modulus to keep within range of [0, `section_count`]
+    let section = u32(float_section) % section_count;
+
+    return section;
 }
 
 // TODO: remove this code duplication if possible. maybe there's a way to shader this const and functions between shaders, idk.

@@ -55,14 +55,10 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     	return;
     }
 
-    // TODO: might be able to save these texture stores with some initial copying or something
-    // textureStore(out_edge_tex, texel, in_pixel);
-
     if (edge_flag == 0u) {
         return;
     }
 
-    // let section = u32((theta + (PI / 4.0) + (PI / 2.0)) / (2 * PI) * 4.0) % 4;
     let section = get_section(theta, 4);
 
     let dirs = array<vec2i, 4>(
