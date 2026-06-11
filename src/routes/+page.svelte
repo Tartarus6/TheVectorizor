@@ -11,6 +11,7 @@
 	};
 
 	let jobs = $state<Job[]>([]);
+	let working = $state(false);
 
 	// Derived state for UI
 	let pendingJobs = $derived(jobs.filter((j) => j.status === 'pending'));
@@ -19,8 +20,6 @@
 	let hasDone = $derived(doneJobs.length > 0);
 	let canSubmit = $derived(hasPending && !working);
 	let canDownload = $derived(hasDone && !working);
-
-	let working = $state(false);
 
 	let bitmap: ImageBitmap | undefined = $state();
 	let svgUrl: string | undefined = $state(); // just for visualizing
