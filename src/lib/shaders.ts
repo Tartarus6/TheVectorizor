@@ -47,6 +47,7 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: add downsampling option to improve tracing performance on more complex images
 // TODO: fix lasso loop issue. (check `md/lasso_problem.md`)
 // TODO: transparent holes in shapes do not work (since they are transparent, the surrounding shape is just filled, with an invisible transparent shape on top)
+// TODO: figure out why blur radius of 1 seems to do no blurring, and blur radius of 0 causes errors (seems like it's off by one)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -67,6 +68,11 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: update readme
 // TODO: do something to guarantee that no user info touches the server. for user security and site security, as well as guaranteeing the intended behaviour
 // TODO: add ability to paste images from clipboard
+// TODO: clean up tiny edge anomalies (little blobs of slightly wrong color on edges)
+// TODO: add ability to do recursive folder upload. select a folder, and return the output in the same folder/subfolder structure
+// TODO: for uploads, make sure they're the right kind of image file. currently uploading something like an svg freaks it out
+// TODO: fix out of memory errors (`Uncaptured WebGPU error: Not enough memory left.`, `DOMException: Not enough memory left.`)
+// TODO: fix chromium performance. it really really sucks for some reason
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -98,6 +104,7 @@ type SharedBuffers = {
 	outPartialSums: GPUBuffer;
 	meanDensityScore: GPUBuffer;
 	connectionCount: GPUBuffer;
+	u32Readback: GPUBuffer;
 };
 
 type FaceTraceBuffers = {
@@ -134,13 +141,21 @@ export async function run_shader(
 ): Promise<[boolean, string]> {
 	// -- Setup ---
 	console.log('starting mean shift cluster step WGPU');
+
 	const device = await requestDevice();
 
 	if (!device) {
-		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
 		return [false, ''];
 	}
+
+	device.lost.then((info) => {
+		console.error('DEVICE LOST', info);
+	});
+
+	device.addEventListener('uncapturederror', (e) => {
+		console.error('WEBGPU ERROR', e.error);
+	});
 
 	const size = getImageSize(imageBitMap);
 	const textures = createSharedTextures(device, size);
@@ -183,12 +198,11 @@ export async function run_shader(
 	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, blurCanvas);
 
 	// --- Mean Shift Cluster Steps ---
+	startTime = performance.now();
+
+	console.log();
+	console.log('Mean Shift Cluster Passes:');
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
-		startTime = performance.now();
-
-		console.log();
-		console.log('Pass:', pass_index);
-
 		const clusterInput = (pass_index + 1) % 2 === 1 ? textures.oklabPong : textures.oklabPing;
 		const clusterOutput = (pass_index + 1) % 2 === 1 ? textures.oklabPing : textures.oklabPong;
 
@@ -218,10 +232,10 @@ export async function run_shader(
 			size,
 			base_bandwidth
 		);
-
-		endTime = performance.now();
-		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// -- OkLab → Srgb (cluster visualization)
 	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
@@ -256,6 +270,9 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Edge Tracing Steps ---
+	startTime = performance.now();
+	console.log();
+	console.log('Edge Trace Passes:');
 	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
 	let final_edge_texture = textures.edgePing;
 	for (
@@ -263,10 +280,6 @@ export async function run_shader(
 		edge_trace_pass_index < num_edge_trace_passes;
 		edge_trace_pass_index++
 	) {
-		startTime = performance.now();
-		console.log();
-		console.log('Edge Trace Pass:', edge_trace_pass_index);
-
 		const outputTexture = edge_trace_pass_index % 2 === 0 ? textures.edgePong : textures.edgePing;
 
 		await edgeTracePass(
@@ -278,10 +291,10 @@ export async function run_shader(
 			size
 		);
 		final_edge_texture = outputTexture;
-
-		endTime = performance.now();
-		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Reciprocating Neighbors ---
 	startTime = performance.now();
@@ -302,15 +315,21 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Init (directed edges + face ids) ---
-
-	startTime = performance.now();
 	console.log();
-	console.log('Creating Face Trace Buffers:');
-	// making buffers (needed to know how many connections there were in order to know what size to make these buffers)
-	const connectionCountNumber = await readU32Buffer(device, buffers.connectionCount);
+	console.log('Face Tracing Setup:');
+
+	const t1 = performance.now();
+	const connectionCountNumber = await readU32Buffer(
+		device,
+		buffers.connectionCount,
+		buffers.u32Readback
+	);
+	// const AVG_EDGE_DEGREE = 1; // safe for virtually all images
+	// const connectionCountNumber = size.width * size.height * AVG_EDGE_DEGREE;
+	const t2 = performance.now();
 	const faceBuffers = await createFaceTraceBuffers(device, connectionCountNumber);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+	const t3 = performance.now();
+	console.log(`readback: ${(t2 - t1).toFixed(2)}ms, buffer creation: ${(t3 - t2).toFixed(2)}ms`);
 
 	startTime = performance.now();
 	console.log();
@@ -327,16 +346,15 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Pointer Jumping ---
+	console.log();
+	console.log('Face Trace Passes:');
+	startTime = performance.now();
 	const faceTracePasses = Math.ceil(Math.log2(Math.max(1, connectionCountNumber)));
 	// const faceTracePasses = 500;
 	let connectionDataIn = faceBuffers.edgeDataPing;
 	let connectionDataOut = faceBuffers.edgeDataPong;
 	let finalConnectionData = connectionDataOut;
 	for (let passIndex = 0; passIndex < faceTracePasses; passIndex += 1) {
-		startTime = performance.now();
-		console.log();
-		console.log('Face Trace Jump Pass:', passIndex);
-
 		await faceTraceJumpPass(
 			device,
 			pipelines.faceTraceJump,
@@ -352,10 +370,10 @@ export async function run_shader(
 		const temp = connectionDataIn;
 		connectionDataIn = connectionDataOut;
 		connectionDataOut = temp;
-
-		endTime = performance.now();
-		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// const finalConnectionData = faceBuffers.edgeDataPing;
 
@@ -384,7 +402,7 @@ export async function run_shader(
 	// 	clusterCanvas
 	// );
 
-	// -- Edge Visualization
+	// --- Edge Visualization ---
 	await edgeVisualizationPass(device, pipelines.edgeVisualization, final_edge_texture, edgeCanvas);
 
 	return [true, svg];
@@ -554,17 +572,25 @@ function createSharedBuffers(device: GPUDevice, size: ImageSize): SharedBuffers 
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
 	});
 
+	const u32Readback = device.createBuffer({
+		label: 'u32 readback buffer',
+		size: 4, // single u32 value
+		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+	});
+
 	// TODO: does this overwrite need to be done?
 	// initialize counter buffer (in case it wasn't defaulting to 0)
 	const initialData = new Uint32Array([0]);
 	device.queue.writeBuffer(connectionCount, 0, initialData);
+	device.queue.writeBuffer(u32Readback, 0, initialData);
 
 	return {
 		densityScores,
 		inPartialSums,
 		outPartialSums,
 		meanDensityScore,
-		connectionCount
+		connectionCount,
+		u32Readback
 	};
 }
 
@@ -1475,16 +1501,14 @@ function compute_gaussian_kernel(radius: number): Float32Array {
 	return weights;
 }
 
-async function readU32Buffer(device: GPUDevice, buffer: GPUBuffer): Promise<number> {
-	const byteLength = Uint32Array.BYTES_PER_ELEMENT; // TODO: should this just be set to the number 4? or is this fine?
-	const readback = device.createBuffer({
-		label: 'u32 readback buffer',
-		size: byteLength,
-		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-	});
-
+/// Function for reading back a buffer with a single U32 value in it
+async function readU32Buffer(
+	device: GPUDevice,
+	buffer: GPUBuffer,
+	readback: GPUBuffer
+): Promise<number> {
 	const encoder = device.createCommandEncoder({ label: 'u32 readback encoder' });
-	encoder.copyBufferToBuffer(buffer, 0, readback, 0, byteLength);
+	encoder.copyBufferToBuffer(buffer, 0, readback, 0, 4); // 4 is the size of a u32
 	device.queue.submit([encoder.finish()]);
 	await readback.mapAsync(GPUMapMode.READ);
 

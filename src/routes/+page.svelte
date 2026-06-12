@@ -3,6 +3,8 @@
 	import { optimize } from 'svgo/browser';
 	import JSZip from 'jszip';
 
+	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
+
 	type Job = {
 		file: File;
 		image?: ImageBitmap;
@@ -39,10 +41,12 @@
 		const files = Array.from((e.target as HTMLInputElement).files ?? []);
 
 		jobs.push(
-			...files.map((file) => ({
-				file,
-				status: 'pending'
-			}))
+			...files.map(
+				(file): Job => ({
+					file,
+					status: 'pending'
+				})
+			)
 		);
 	}
 
@@ -226,12 +230,12 @@
 				type="number"
 				bind:value={blur_radius}
 				min={1}
-				max={bitmap ? 50 : 512}
+				max={10}
 				step={1}
 				class="border-2 border-white"
 			/>
 		</div>
-		<input type="range" bind:value={blur_radius} min={1} max={bitmap ? 50 : 512} step={1} />
+		<input type="range" bind:value={blur_radius} min={1} max={10} step={1} />
 	</div>
 
 	<div class="flex flex-col bg-slate-500 p-2">
@@ -259,7 +263,7 @@
 		disabled={!canSubmit}
 		class="w-fit {!canSubmit ? 'bg-gray-500' : 'cursor-pointer bg-purple-500'} p-2"
 	>
-		<span>shader pass</span>
+		<span>vectorize</span>
 	</button>
 
 	<button
@@ -273,16 +277,24 @@
 		<h3>appload your image here</h3>
 		<input class="bg-blue-500" type="file" accept="image/*" multiple onchange={onFilesSelected} />
 	</div>
-	<div class="flex w-fit flex-col bg-slate-600 p-2">
+	<div class="flex w-fit flex-col gap-2 bg-slate-600 p-2">
 		<span class="text-2xl">Jobs:</span>
 		<hr />
 		{#if jobs.length == 0}
 			<span>No submitted jobs...</span>
 		{/if}
 		{#each jobs as job (job.file)}
-			<span>
-				{job.file.name} - {job.status}
-			</span>
+			<div
+				class="{job.status == 'done' ? 'bg-green-700' : ''} {job.status == 'processing'
+					? 'bg-yellow-700'
+					: ''} {job.status == 'pending' ? 'bg-gray-700' : ''} {job.status == 'error'
+					? 'bg-red-700'
+					: ''}"
+			>
+				<span>
+					{job.file.name} - {job.status}
+				</span>
+			</div>
 		{/each}
 	</div>
 </div>
