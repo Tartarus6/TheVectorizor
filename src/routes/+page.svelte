@@ -4,6 +4,7 @@
 	import JSZip from 'jszip';
 
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
+	// TODO: ability to paste images
 
 	type Job = {
 		file: File;
@@ -23,7 +24,6 @@
 	let canSubmit = $derived(hasPending && !working);
 	let canDownload = $derived(hasDone && !working);
 
-	let bitmap: ImageBitmap | undefined = $state();
 	let svgUrl: string | undefined = $state(); // just for visualizing
 
 	let base_bandwidth = $state(0.05);
@@ -35,11 +35,8 @@
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
-	let canvas_scale = $state(3);
 
-	async function onFilesSelected(e: Event) {
-		const files = Array.from((e.target as HTMLInputElement).files ?? []);
-
+	function addFiles(files: File[]) {
 		jobs.push(
 			...files.map(
 				(file): Job => ({
@@ -50,31 +47,10 @@
 		);
 	}
 
-	function apply_svg_display_scale(target: HTMLImageElement | undefined) {
-		if (!bitmap) {
-			return;
-		}
+	function onFilesSelected(e: Event) {
+		const files = Array.from((e.target as HTMLInputElement).files ?? []);
 
-		if (!target) {
-			return;
-		}
-
-		target.style.width = `${bitmap.width * canvas_scale}px`;
-		target.style.height = `${bitmap.height * canvas_scale}px`;
-	}
-
-	function apply_canvas_display_scale(target: HTMLCanvasElement | undefined) {
-		if (!bitmap) {
-			return;
-		}
-
-		if (!target) {
-			return;
-		}
-
-		target.style.width = `${bitmap.width * canvas_scale}px`;
-		target.style.height = `${bitmap.height * canvas_scale}px`;
-		target.style.imageRendering = 'pixelated';
+		addFiles(files);
 	}
 
 	// Helper: process a single job
@@ -193,21 +169,11 @@
 
 		URL.revokeObjectURL(url);
 	}
-
-	$effect(() => {
-		apply_canvas_display_scale(image_canvas);
-		apply_svg_display_scale(svg_preview);
-	});
 </script>
 
 <h1 class="text-center">The Vectorizor</h1>
 
 <div class="flex w-128 flex-col gap-2 p-2">
-	<div class="flex flex-col bg-slate-500 p-2">
-		<span>Canvas Scale: {canvas_scale}</span>
-		<input type="range" bind:value={canvas_scale} min={1} max={30} />
-	</div>
-
 	<div class="flex flex-col bg-slate-500 p-2">
 		<div class="flex flex-row gap-2">
 			<span>Base Bandwidth:</span>
@@ -261,7 +227,7 @@
 	<button
 		onmousedown={on_shader_run}
 		disabled={!canSubmit}
-		class="w-fit {!canSubmit ? 'bg-gray-500' : 'cursor-pointer bg-purple-500'} p-2"
+		class="w-full {!canSubmit ? 'bg-gray-500' : 'cursor-pointer bg-purple-500'} p-2"
 	>
 		<span>vectorize</span>
 	</button>
@@ -269,13 +235,26 @@
 	<button
 		onmousedown={downloadAll}
 		disabled={!canDownload}
-		class="w-fit {!canDownload ? 'bg-gray-500' : 'cursor-pointer bg-green-500'} p-2"
+		class="w-full {!canDownload ? 'bg-gray-500' : 'cursor-pointer bg-green-500'} p-2"
 	>
 		<span>download svg</span>
 	</button>
-	<div class="flex w-fit flex-col bg-slate-600 p-2">
-		<h3>appload your image here</h3>
-		<input class="bg-blue-500" type="file" accept="image/*" multiple onchange={onFilesSelected} />
+	<div
+		class="relative flex flex-col items-center gap-2 rounded border-2 border-dashed border-slate-400 bg-slate-500 p-4 hover:border-slate-300"
+	>
+		<div class="font-semibold">Add Images</div>
+
+		<div class="text-sm">Click or drag images here</div>
+
+		<div class="text-xs">Multiple images supported</div>
+
+		<input
+			type="file"
+			accept="image/*"
+			multiple
+			onchange={onFilesSelected}
+			class="absolute inset-0 cursor-pointer opacity-0"
+		/>
 	</div>
 	<div class="flex w-fit flex-col gap-2 bg-slate-600 p-2">
 		<span class="text-2xl">Jobs:</span>
