@@ -100,13 +100,17 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
             let cand_edge_flag = cand_edge_pix.x;
 
-            // if candidate is already part of an edge, just pick that one immediately
-            if (cand_edge_flag != 0u) {
+            // if candidate is already part of an edge (and we haven't already found an edge), just pick that one immediately
+            if (cand_edge_flag != 0u && !found_edge_connection) {
                 best_edge_pix = cand_edge_pix;
                 best_pix_grad_mag = cand_grad_mag;
                 best_pos = pos;
                 found_edge_connection = true; // mark that chosen candidate was already marked as an edge
-                break;
+            }
+
+            // if we have already found an edge, and candidate is not an edge, skip it
+            if (cand_edge_flag == 0u && found_edge_connection) {
+            	continue;
             }
 
             // if candidate is new best, update best
