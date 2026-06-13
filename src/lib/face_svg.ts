@@ -146,8 +146,9 @@ export async function faceBuffersToSvg(
 			continue;
 		}
 
+		// remove negative area shapes as well as small ones (small ones can be created from small loops in neighbor connections)
 		const area = polygonSignedArea(points);
-		if (area <= 0) {
+		if (area <= 1) {
 			continue;
 		}
 
