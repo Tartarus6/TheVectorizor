@@ -70,36 +70,54 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         var neighbor_offsets = array<vec2i, MAX_NEIGHBORS>(
             vec2i(0), vec2i(0), vec2i(0), vec2i(0),
             vec2i(0), vec2i(0), vec2i(0), vec2i(0)
-            );
+        );
+        var new_theta = 0f;
         if (texel.x == 0 && texel.y == 0) {
             // top left
             neighbor_offsets[0] = vec2i(1, 0); // east
             neighbor_offsets[1] = vec2i(0, 1); // south
+            new_theta = 7f * PI / 4f; // southeast
         } else if (texel.x == dims.x - 1 && texel.y == 0) {
             // top right
             neighbor_offsets[0] = vec2i(-1, 0); // west
             neighbor_offsets[1] = vec2i(0, 1);  // south
+            new_theta = 5f * PI / 4f; // southwest
         } else if (texel.x == 0 && texel.y == dims.y - 1) {
             // bottom left
             neighbor_offsets[0] = vec2i(1, 0);  // east
             neighbor_offsets[1] = vec2i(0, -1); // north
+            new_theta = 1f * PI / 4f; // northeast
         } else if (texel.x == dims.x - 1 && texel.y == dims.y - 1) {
             // bottom right
             neighbor_offsets[0] = vec2i(-1, 0); // west
             neighbor_offsets[1] = vec2i(0, -1); // north
-        } else if (texel.x == 0 || texel.x == dims.x - 1) {
-            // left/right
+            new_theta = 3f * PI / 4f; // northhwest
+        } else if (texel.x == 0) {
+            // left
             neighbor_offsets[0] = vec2i(0, 1);  // south
             neighbor_offsets[1] = vec2i(0, -1); // north
+            new_theta = 0f * PI / 4f; // east
+        } else if (texel.x == dims.x - 1) {
+        	// right
+        	neighbor_offsets[0] = vec2i(0, 1);  // south
+	        neighbor_offsets[1] = vec2i(0, -1); // north
+	        new_theta = 4f * PI / 4f; // west
         } else if (texel.y == 0 || texel.y == dims.y - 1) {
-            // top/bottom
+            // top
             neighbor_offsets[0] = vec2i(1, 0);  // east
             neighbor_offsets[1] = vec2i(-1, 0); // west
+            new_theta = 6f * PI / 4f; // south
+        } else if (texel.y == dims.y - 1) {
+            // bottom
+            neighbor_offsets[0] = vec2i(1, 0);  // east
+            neighbor_offsets[1] = vec2i(-1, 0); // west
+            new_theta = 2f * PI / 4f; // north
         }
 
         let packed: u32 = pack_neighbors(neighbor_offsets, 2);
 
-   	    textureStore(out_grad_tex, texel, grad_pixel);
+        // store the new theta and packed neighbors
+   	    textureStore(out_grad_tex, texel, vec4f(grad_pixel.x, new_theta, grad_pixel.zw));
         textureStore(out_edge_tex, texel, vec4u(1u, packed, 0u, 0u));
         return;
     }

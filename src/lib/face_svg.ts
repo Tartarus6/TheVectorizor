@@ -118,26 +118,63 @@ export async function faceBuffersToSvg(
 	const facePaths: FacePath[] = [];
 	for (const [, entry] of faces) {
 		const { startEdge: startConnection } = entry;
+
 		const points: EdgePoint[] = [];
-		const visited = new Set<number>();
+
+		// edge -> point index in current contour
+		const visitedEdgeToPointIndex = new Map<number, number>();
+
+		// edges belonging to discarded loops
+		const ignoredEdges = new Set<number>();
+
+		// path history
+		const pathEdges: number[] = [];
+
 		let currentConnectionIdx = startConnection;
 		let closed = false;
 
 		for (let step = 0; step <= connectionCount; step += 1) {
-			if (currentConnectionIdx === INVALID_CONNECTION || visited.has(currentConnectionIdx)) {
+			if (currentConnectionIdx === INVALID_CONNECTION) {
 				break;
+			}
+
+			// hit the starting edge again => proper closure
+			if (currentConnectionIdx === startConnection && pathEdges.length > 0) {
+				closed = true;
+				break;
+			}
+
+			// somehow walked back into a loop that was discarded
+			if (ignoredEdges.has(currentConnectionIdx)) {
+				break;
+			}
+
+			const existingIndex = visitedEdgeToPointIndex.get(currentConnectionIdx);
+
+			// false loop detected
+			if (existingIndex !== undefined) {
+				const loopEdges = pathEdges.slice(existingIndex);
+
+				for (const edge of loopEdges) {
+					ignoredEdges.add(edge);
+					visitedEdgeToPointIndex.delete(edge);
+				}
+
+				pathEdges.length = existingIndex;
+				points.length = existingIndex;
+
+				currentConnectionIdx = connectionsData[currentConnectionIdx].nextConnectionIdx;
+
+				continue;
 			}
 
 			const connection = connectionsData[currentConnectionIdx];
 
-			visited.add(currentConnectionIdx);
-			const pixelIndex = connection.posIdx;
-			points.push(subpixelPoints[pixelIndex]);
+			visitedEdgeToPointIndex.set(currentConnectionIdx, pathEdges.length);
 
-			if (connection.nextConnectionIdx === startConnection) {
-				closed = true;
-				break;
-			}
+			pathEdges.push(currentConnectionIdx);
+
+			points.push(subpixelPoints[connection.posIdx]);
 
 			currentConnectionIdx = connection.nextConnectionIdx;
 		}
