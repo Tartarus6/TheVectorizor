@@ -13,176 +13,6 @@ import face_trace_init_shader from '$lib/shaders/face_trace_init.wgsl?raw';
 import face_trace_jump_shader from '$lib/shaders/face_trace_jump.wgsl?raw';
 import { faceBuffersToSvg } from '$lib/face_svg';
 
-/*
-Idea for turning edges into shapes:
-
-For each pixel with a degree greater than 2 (meaning more than 2 neighbors), say that pixel "points to"
-the pixel that is the soonest clockwise pixel (or counterclockwise it shouldnt matter as long as it's
-consistent).
-
-͟I͟s͟s͟u͟e͟ ͟1: not sure how to define which direction to start with (easy to tell by looking at it, but not
-	sure how to define it)
-͟I͟s͟s͟u͟e͟ ͟2: Need to make sure every pixel marked as an edge has at least a degree of 2, otherwise edge
-	tracing isn't complete yet, and it won't be possible to turn that edge into part of a closed shape.
-
-For Example:
-	╭───────────────────────────────────────────╮
-	│Key:                                       │
-	│	" ■ " → non-edge pixel (top left shape) │
-	│	" ● " → non-edge pixel (bottom shape)   │
-	│	" ▲ " → non-edge pixel (top right shape)│
-	│	"███" → edge pixel                      │
-	╰───────────────────────────────────────────╯
-
- ╭─1──2──3──4──5──6─╮
-A│ ■  ■  ■ ███ ▲  ▲ │
-B│███ ■  ■ ███ ▲  ▲ │
-C│ ● ███ ■ ███ ▲  ▲ │
-D│ ●  ● ████████████│
-E│ ●  ●  ●  ●  ●  ● │
- ╰──────────────────╯
-
-We would want to split the pixels above into 3 shapes: the bottom ones, the top left ones, and the top right
-ones. In order to make those shapes, we can connect:
-- ■: A4 ←→ B4 ←→ C4 ←→ D4 ←→ D3 ←→ C2 ←→ B1
-- ●: B1 ←→ C2 ←→ D3 ←→ D4 ←→ D5 ←→ D6
-- ▲: D6 ←→ D5 ←→ D4 ←→ C4 ←→ B4 ←→ A4
-
-In the shapes described above, D4 is treated as a "hub" node, so it is included in all 3. I'm not sure how to
-make sure that an algorithm to make the shapes will include that central pixel instead of, for example, using
-these edges instead (skipping the hub node sometimes):
-- ■: A4 ←→ B4 ←→ C4 ←→ D3 ←→ C2 ←→ B1
-- ●: B1 ←→ C2 ←→ D3 ←→ D4 ←→ D5 ←→ D6
-- ▲: D6 ←→ D5 ←→ C4 ←→ B4 ←→ A4
-
-Notable things for an algorithm:
-- The connections described above aren't closed, but that's just because i wanted a short example. We want for
-	All shapes to be closed loops. Though, we might want to somehow treat the border of the image as an edge?
-	In that case, it would be closed. I think that would make sense.
-- The connections descrived above are 2-way, since the outline of a shape isn't directional.
-- In the diagram above, D3, C4, D4, and D5 are the high-degree pixels.
-- D4 is the "hub" pixel. not sure how to identify that, since D3, D4, and D5 all have a degree of 3, and C4
-	even has a degree of 4. So idk how to define a hub node such that it would pick D4.
-
-Maybe could use the theta values of each edge pixel to see which pixels they "point towards", and look for pixels
-that are very "pointed at" to find the "hub" pixels? (each pixel would point in 2 directions, since forward and
-backward along edge are arbitrary)
-
-
-Another separate issue is how to deal with staircase pixel patterns
-
- ╭─1──2──3──4──5─╮
-A│███ ▲  ▲  ▲  ▲ │
-B│██████ ▲  ▲  ▲ │
-C│ ● ██████ ▲  ▲ │
-D│ ●  ● ██████ ▲ │
-E│ ●  ●  ● ██████│
- ╰───────────────╯
-
-This needs to be identified as a single edge. So like:
-A1 ←→ B1 ←→ B2 ←→ C2 ←→ C3 ←→ D3 ←→ D4 ←→ E4 ←→ E5
-
-Pixels do need to be able to connect diagonally (since my edge pixels often have diagonal-only connections). But
-sometimes it does end up as a staircase like above. So the example above should be recognised as a single edge,
-rather than 2 diagonal edges, or 2 diagonal edges with a staircase on top, or whatever else.
-
-Whatever solution we end up with needs to be efficient, since this project is focused on optimization and
-efficiency. So a complex solution like checking all the neighbors of each neighbor to check whether this connection
-is needed or not would be too inefficient.
-
-
-
-
-͟U͟p͟d͟a͟t͟e: I have solved the issue of finding the right neighbors. The shader passes now store the connections between
-        the edge pixels. So reconstructing the path that the edge tracing steps took is easy. This solves the
-        staircase issue.
-
-The issue that remains is tracing the closed faces in the edge pixel graph, and getting the color for each face.
-
-So the idea is to use *Pointer Jumping* to have a shader that combined edges into pairs, then pairs of pairs, etc.,
-always picking the "counterclockwise" option.
-
-The trick is that each directed edge corresponds to a closed face.
- ╭1─2─3─4─5─╮
-A│  ↙↘  ↙↘  │
-B│↓↗  ↓↗  ↖↓│
-C│↓↑  ↓↑  ↑↓│
-D│↑↘  ↙↑  ↙↑│
-E│  ↖↗  ↖↗  │
- ╰──────────╯
-
-The shader will have some data structure like the one shown below:
-```wgsl
-struct GraphData {
-    next_edge : array<u32>,
-    face_id   : array<u32>,
-};
-```
-The first pass of the shader will run with one thread per edge connection. It will choose the next "counterclockwise"
-connection, and write that as the `next_edge` for the thread's edge connection. It will then take the minimum "ID" of
-the 2 edge connections (itsself and the one it just connected to), and write that as the face ID for the thread's edge
-pixel.
-
-Then the next pass will again have one thread per edge connection. It will look at the previously chosen `next_edge`
-for the thread's edge connection, and then look at the `next_edge` for that edge connection. Then, it will write that
-"next next" as the new next for the thread's edge connection, doubling the distance that's been checked. It will also
-look at the face ID for the thread's edge connection as well as for the new next, and update the thread's face ID to be
-the min of the two.
-
-This will be repeated for some number of iterations until every closed shape has been explored (probably just choose
-some arbitrary number of passes that should be enough doublings. something like 5-8, idk). By the end, each edge
-connection will correspond to some face ID.
-
-͟I͟s͟s͟u͟e͟ ͟1: Color
-This one is pretty easy to solve.
-When faces are traced, we need to figure out what color each should be filled in with.
-
-For each edge connection that we look at in the face tracing passes, we can sample the color texture 90 degrees offset
-from the direction of the connection at something like a distance of 2 pixels from the connection itsself (in order to
-make sure we are getting the internal color, not just edge weirdness). Then each time we do a doubling, we can take the
-average of the 2 samples, and write that as the edge's color
-
-That strategy might not work, due to unpredictable comparisons. I think each connection on a face might end up with
-slightly different average colors.
-So instead, we can just do all of the face tracing, then do another set of passes afterwards. We can split the connectiosn
-for each face into pairs, and average them. Then average the pairs, then pairs of pairs, etc. And this should allow us to
-get a single average color.
-
-Another idea would be to just use the thing mentioned before, with averaging the colors within the face tracing passes,
-then just picking the color of the connection corresponding to the face ID as the color for the shape. If enough passes
-happen, all of the connections should have approximately the same color. It should be close enough.
-
-
-͟I͟s͟s͟u͟e͟ ͟2: Infinitely Large Faces
-When certain edges are traced, they will produce an inverted shape with infinite area.
- ╭1─2─3─4─5─6─7─╮
-A│              │
-B│    ↙→←→←↘    │
-C│  ↓↗      ↖↓  │
-D│  ↓↑      ↑↓  │
-E│  ↑↘      ↙↑  │
-F│    ↖→←→←↗    │
-G│              │
- ╰──────────────╯
-
-When the graph above is traced, there will be 2 faces created. One face will be the center circle, and the other will
-be an open shape that is everything except that circle.
-
-This needs to be dealt with somehow. It might just work to check the area of the resulting directed shape, and if it's
-infinite, then throw away the shape?
-
-
-͟I͟s͟s͟u͟e͟ ͟3: Z-Ordering
-With a shader-based face tracing, it will have to be decided which shapes are on top of each other.
-
-This wasn't an issue with the CPU approach, since it iterated through pixels from top left corner to bottom right
-corner. This strategy happens to always identify the shapes in the correct order to draw them.
-
-We could do this on the CPU side, using the same method that worked before, but having already traced the faces. As
-the CPU algorithm builds the final SVG, we can just have it do so from top left to bottom right. That way it will
-(hopefully) correctly order the shapes.
-*/
-
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
 // DONE: switch from weird uint8array output to just having a canvas context, and having the gpu draw straight to the canvas
@@ -194,6 +24,7 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // TODO: (maybe) switch to holding density scores in a texture rather than a general array buffer
 // TODO: (maybe) turn update_density_scores into a fragment shader
 // TODO: (maybe) turn mean_shift_cluster_step into a fragment shader
+// TODO: speed up creating face trace buffers. currently responsible for like 50% of execution time
 
 // EDGE DETECTION TODOS
 // DONE: filter maxima to find only important edges
@@ -206,11 +37,17 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // DONE: (size optimizing) recognise curves, turn points along approx. continuous curves into a bezier
 // DONE: (size optimizing) reduce decimal points saved
 // DONE: (size optimizing) remove points that are really close to each other
+// DONE: tiny gaps are left between shapes, causing some renderers to show a line between them (maybe could just add a low-width stroke of the same color?)
+// DONE: special offsetting for the edge on the outside (they should be on the outer edge instead of the center of their pixels)
 // TODO: add a pass to check whether edge tracing is complete (check if all marked edge pixels have degree of at least 2) (need to do this while avoiding the 100ms waits of cpu-side reads)
 // TODO: combine nodes into edges by "Devernay Sub-Pixel Correction" interpolation (quadratic interpolation of the gradient norm between three neighboring positions along the gradient direction)
 // TODO: fix junctinons kinda pulling edges in in subpixel offsetting (like the bigger line in a t-junction will get pulled towards the smaller one, like a stitch getting pulled tight)
 // TODO: add background removal. primarily for when the background was transparent, so there isn't a mostly transparent square around the svg
 // TODO: fix complex images not working. something goes wrong with more complex images (like pictures), and a lot of the svg (usually the bottom half) doesnt get created
+// TODO: add downsampling option to improve tracing performance on more complex images
+// TODO: fix lasso loop issue. (check `md/lasso_problem.md`)
+// TODO: transparent holes in shapes do not work (since they are transparent, the surrounding shape is just filled, with an invisible transparent shape on top)
+// TODO: figure out why blur radius of 1 seems to do no blurring, and blur radius of 0 causes errors (seems like it's off by one)
 
 // GENERAL TODOS
 // DONE: figure out a name for the stages of the vectorizor (like "cleanup" for the mean shift cluster stuff, and "edge detection" for that, or whatever) and give more descriptive names to functons/files/variables
@@ -218,14 +55,24 @@ the CPU algorithm builds the final SVG, we can just have it do so from top left 
 // DONE: add checks for if device and adapter are defined in each subfunction, to prevent the need to repeat `device!` every time
 // DONE: (maybe) remove all or some of the readback buffers. are they needed/used?
 // DONE: (question) how exactly do layers work in an svg? what needs to be done to make sure that the stuff on top in the image is drawn on top in the svg?
-// TODO: fix clustering messing up outer edges of certain images. it seems like certain images that have white next to a transparent background have their outer edges really mangled. (note for tar: beaSticker_0.png is an example image with this issue)
-// TODO: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
+// DONE: fix clustering messing up outer edges of certain images. it seems like certain images that have white next to a transparent background have their outer edges really mangled. (note for tar: beaSticker_0.png is an example image with this issue)
+// DONE: alpha is not respected when drawing directly to canvas context. but it was with the old pixels system. figure out how to make alpha work
+// DONE: check how color averaging works (for chosing the svg colors) and improve it if reasonable
+// DONE: downloadable svg output
+// DONE: multiple file input (maybe zip them together)
 // TODO: (maybe) add a mean shift cluster pass at the end that doesn't weight mean by image locality, in order to remove any remaining gradients (prolly not needed though)
 // TODO: (maybe) move setup for device, adapter, buffers, etc. into a separate function, just to clean up the main run_shader() function and improve its readability
 // TODO: (maybe) make a global const for workgroup sizing (wont sync with shader files, just good to not have multiple possible points of failure)
 // TODO: fix super inconsistent naming of edgeData a.k.a. connectionData (should be "connectionData")
-// TODO: check how color averaging works (for chosing the svg colors) and improve it if reasonable
 // TODO: major cleanup (reorganizing code, adding lots of comments, renaming things, removing unneded things, etc.)
+// TODO: update readme
+// TODO: do something to guarantee that no user info touches the server. for user security and site security, as well as guaranteeing the intended behaviour
+// TODO: add ability to paste images from clipboard
+// TODO: clean up tiny edge anomalies (little blobs of slightly wrong color on edges)
+// TODO: add ability to do recursive folder upload. select a folder, and return the output in the same folder/subfolder structure
+// TODO: for uploads, make sure they're the right kind of image file. currently uploading something like an svg freaks it out
+// TODO: fix out of memory errors (`Uncaptured WebGPU error: Not enough memory left.`, `DOMException: Not enough memory left.`)
+// TODO: fix chromium performance. it really really sucks for some reason
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -257,6 +104,7 @@ type SharedBuffers = {
 	outPartialSums: GPUBuffer;
 	meanDensityScore: GPUBuffer;
 	connectionCount: GPUBuffer;
+	u32Readback: GPUBuffer;
 };
 
 type FaceTraceBuffers = {
@@ -282,24 +130,32 @@ type Pipelines = {
 };
 
 export async function run_shader(
+	blurCanvas: GPUCanvasContext,
 	clusterCanvas: GPUCanvasContext,
 	edgeCanvas: GPUCanvasContext,
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
-	tile_size: number,
 	blur_radius: number,
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
 ): Promise<[boolean, string]> {
 	// -- Setup ---
 	console.log('starting mean shift cluster step WGPU');
+
 	const device = await requestDevice();
 
 	if (!device) {
-		// TODO: add an actual warning for this on the site, popup or whatever
 		alert('need a browser that supports WebGPU');
 		return [false, ''];
 	}
+
+	device.lost.then((info) => {
+		console.error('DEVICE LOST', info);
+	});
+
+	device.addEventListener('uncapturederror', (e) => {
+		console.error('WEBGPU ERROR', e.error);
+	});
 
 	const size = getImageSize(imageBitMap);
 	const textures = createSharedTextures(device, size);
@@ -338,13 +194,15 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
+	// -- OkLab → Srgb (blur visualization)
+	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, blurCanvas);
+
 	// --- Mean Shift Cluster Steps ---
+	startTime = performance.now();
+
+	console.log();
+	console.log('Mean Shift Cluster Passes:');
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
-		startTime = performance.now();
-
-		console.log();
-		console.log('Pass:', pass_index);
-
 		const clusterInput = (pass_index + 1) % 2 === 1 ? textures.oklabPong : textures.oklabPing;
 		const clusterOutput = (pass_index + 1) % 2 === 1 ? textures.oklabPing : textures.oklabPong;
 
@@ -355,8 +213,7 @@ export async function run_shader(
 			buffers.densityScores,
 			textures.densityScoresTexture,
 			size,
-			base_bandwidth,
-			tile_size
+			base_bandwidth
 		);
 
 		const meanDensityScoreBuffer = await getMeanDensityScore(
@@ -373,13 +230,15 @@ export async function run_shader(
 			clusterOutput,
 			buffers.densityScores,
 			size,
-			base_bandwidth,
-			tile_size
+			base_bandwidth
 		);
-
-		endTime = performance.now();
-		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+
+	// -- OkLab → Srgb (cluster visualization)
+	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
 
 	// --- Gaussian Gradient ---
 	startTime = performance.now();
@@ -411,6 +270,9 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Edge Tracing Steps ---
+	startTime = performance.now();
+	console.log();
+	console.log('Edge Trace Passes:');
 	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
 	let final_edge_texture = textures.edgePing;
 	for (
@@ -418,10 +280,6 @@ export async function run_shader(
 		edge_trace_pass_index < num_edge_trace_passes;
 		edge_trace_pass_index++
 	) {
-		startTime = performance.now();
-		console.log();
-		console.log('Edge Trace Pass:', edge_trace_pass_index);
-
 		const outputTexture = edge_trace_pass_index % 2 === 0 ? textures.edgePong : textures.edgePing;
 
 		await edgeTracePass(
@@ -433,10 +291,10 @@ export async function run_shader(
 			size
 		);
 		final_edge_texture = outputTexture;
-
-		endTime = performance.now();
-		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Reciprocating Neighbors ---
 	startTime = performance.now();
@@ -457,15 +315,21 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Init (directed edges + face ids) ---
-
-	startTime = performance.now();
 	console.log();
-	console.log('Creating Face Trace Buffers:');
-	// making buffers (needed to know how many connections there were in order to know what size to make these buffers)
-	const connectionCountNumber = await readU32Buffer(device, buffers.connectionCount);
+	console.log('Face Tracing Setup:');
+
+	const t1 = performance.now();
+	const connectionCountNumber = await readU32Buffer(
+		device,
+		buffers.connectionCount,
+		buffers.u32Readback
+	);
+	// const AVG_EDGE_DEGREE = 1; // safe for virtually all images
+	// const connectionCountNumber = size.width * size.height * AVG_EDGE_DEGREE;
+	const t2 = performance.now();
 	const faceBuffers = await createFaceTraceBuffers(device, connectionCountNumber);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
+	const t3 = performance.now();
+	console.log(`readback: ${(t2 - t1).toFixed(2)}ms, buffer creation: ${(t3 - t2).toFixed(2)}ms`);
 
 	startTime = performance.now();
 	console.log();
@@ -482,16 +346,15 @@ export async function run_shader(
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Pointer Jumping ---
+	console.log();
+	console.log('Face Trace Passes:');
+	startTime = performance.now();
 	const faceTracePasses = Math.ceil(Math.log2(Math.max(1, connectionCountNumber)));
 	// const faceTracePasses = 500;
 	let connectionDataIn = faceBuffers.edgeDataPing;
 	let connectionDataOut = faceBuffers.edgeDataPong;
 	let finalConnectionData = connectionDataOut;
 	for (let passIndex = 0; passIndex < faceTracePasses; passIndex += 1) {
-		startTime = performance.now();
-		console.log();
-		console.log('Face Trace Jump Pass:', passIndex);
-
 		await faceTraceJumpPass(
 			device,
 			pipelines.faceTraceJump,
@@ -507,10 +370,10 @@ export async function run_shader(
 		const temp = connectionDataIn;
 		connectionDataIn = connectionDataOut;
 		connectionDataOut = temp;
-
-		endTime = performance.now();
-		console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 	}
+
+	endTime = performance.now();
+	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// const finalConnectionData = faceBuffers.edgeDataPing;
 
@@ -530,16 +393,16 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	// -- OkLab → Srgb (just for visualization)
-	await oklabToSrgbPass(
-		device,
-		pipelines.oklabToSrgb,
-		num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
-		false,
-		clusterCanvas
-	);
+	// // -- OkLab → Srgb (just for visualization)
+	// await oklabToSrgbPass(
+	// 	device,
+	// 	pipelines.oklabToSrgb,
+	// 	num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
+	// 	false,
+	// 	clusterCanvas
+	// );
 
-	// -- Edge Visualization
+	// --- Edge Visualization ---
 	await edgeVisualizationPass(device, pipelines.edgeVisualization, final_edge_texture, edgeCanvas);
 
 	return [true, svg];
@@ -709,17 +572,25 @@ function createSharedBuffers(device: GPUDevice, size: ImageSize): SharedBuffers 
 		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
 	});
 
+	const u32Readback = device.createBuffer({
+		label: 'u32 readback buffer',
+		size: 4, // single u32 value
+		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+	});
+
 	// TODO: does this overwrite need to be done?
 	// initialize counter buffer (in case it wasn't defaulting to 0)
 	const initialData = new Uint32Array([0]);
 	device.queue.writeBuffer(connectionCount, 0, initialData);
+	device.queue.writeBuffer(u32Readback, 0, initialData);
 
 	return {
 		densityScores,
 		inPartialSums,
 		outPartialSums,
 		meanDensityScore,
-		connectionCount
+		connectionCount,
+		u32Readback
 	};
 }
 
@@ -1063,15 +934,13 @@ async function oklabToSrgbPass(
 	const bindGroup = device.createBindGroup({
 		label: 'oklab to srgb ping bind group',
 		layout: pipeline.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: texture.createView() },
-			{ binding: 1, resource: { buffer: debugUniformsBuffer } }
-		]
+		entries: [{ binding: 0, resource: texture.createView() }]
 	});
 
 	context.configure({
 		device,
-		format: canvas_format
+		format: canvas_format,
+		alphaMode: 'premultiplied'
 	});
 
 	const renderPassDescriptor: GPURenderPassDescriptor = {
@@ -1105,8 +974,7 @@ async function densityScoresPass(
 	densityScoresBuffer: GPUBuffer,
 	densityScoresTexture: GPUTexture,
 	size: ImageSize,
-	baseBandwidth: number,
-	tileSize: number
+	baseBandwidth: number
 ): Promise<void> {
 	/*
 	struct Uniforms {
@@ -1114,24 +982,10 @@ async function densityScoresPass(
 	}
 	*/
 	const floatUniformsData = new Float32Array([baseBandwidth]);
-	/*
-	struct UintUniforms {
-		tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-		tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-		tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-	}
-	*/
-	const uintUniformsData = new Uint32Array([0, 0, tileSize]);
 
 	const floatUniformsBuffer = device.createBuffer({
 		label: 'float uniforms buffer',
 		size: floatUniformsData.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-
-	const uintUniformsBuffer = device.createBuffer({
-		label: 'uint uniforms buffer',
-		size: uintUniformsData.byteLength,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 	});
 
@@ -1140,36 +994,26 @@ async function densityScoresPass(
 		layout: pipeline.getBindGroupLayout(0),
 		entries: [
 			{ binding: 0, resource: floatUniformsBuffer },
-			{ binding: 1, resource: uintUniformsBuffer },
-			{ binding: 2, resource: texture.createView() },
-			{ binding: 3, resource: densityScoresBuffer },
-			{ binding: 4, resource: densityScoresTexture.createView() }
+			{ binding: 1, resource: texture.createView() },
+			{ binding: 2, resource: densityScoresBuffer },
+			{ binding: 3, resource: densityScoresTexture.createView() }
 		]
 	});
 
 	device.queue.writeBuffer(floatUniformsBuffer, 0, floatUniformsData);
 
-	for (let tileX = 0; tileX < size.width; tileX += tileSize) {
-		for (let tileY = 0; tileY < size.height; tileY += tileSize) {
-			// update the uint uniforms buffer for this pass
-			uintUniformsData[0] = tileX;
-			uintUniformsData[1] = tileY;
-			device.queue.writeBuffer(uintUniformsBuffer, 0, uintUniformsData);
+	const encoder = device.createCommandEncoder({
+		label: 'update density scores encoder'
+	});
+	const pass = encoder.beginComputePass({
+		label: 'update density scores compute pass'
+	});
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
 
-			const encoder = device.createCommandEncoder({
-				label: 'update density scores encoder'
-			});
-			const pass = encoder.beginComputePass({
-				label: 'update density scores compute pass'
-			});
-			pass.setPipeline(pipeline);
-			pass.setBindGroup(0, bindGroup);
-			pass.dispatchWorkgroups(Math.ceil(tileSize / 16), Math.ceil(tileSize / 16));
-			pass.end();
-
-			device.queue.submit([encoder.finish()]);
-		}
-	}
+	device.queue.submit([encoder.finish()]);
 }
 
 async function getMeanDensityScore(
@@ -1274,8 +1118,7 @@ async function meanShiftClusterPass(
 	textureOut: GPUTexture,
 	densityScoresBuffer: GPUBuffer,
 	size: ImageSize,
-	baseBandwidth: number,
-	tileSize: number
+	baseBandwidth: number
 ): Promise<void> {
 	/*
 	struct FloatUniforms {
@@ -1283,24 +1126,10 @@ async function meanShiftClusterPass(
 	}
 	*/
 	const floatUniformsData = new Float32Array([baseBandwidth]);
-	/*
-	struct UintUniforms {
-		tile_x: u32,    /// the low x value of the current tile (basically the x-offset for this shader pass)
-		tile_y: u32,    /// the low y value of the current tile (basically the y-offset for this shader pass)
-		tile_size: u32, /// the size of each tile (the range of x and y for this shader pass)
-	}
-	*/
-	const uintUniformsData = new Uint32Array([0, 0, tileSize]);
 
 	const floatUniformsBuffer = device.createBuffer({
 		label: 'mean shift cluster float uniforms buffer',
 		size: floatUniformsData.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-
-	const uintUniformsBuffer = device.createBuffer({
-		label: 'mean shift cluster uint uniforms buffer',
-		size: uintUniformsData.byteLength,
 		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
 	});
 
@@ -1310,35 +1139,26 @@ async function meanShiftClusterPass(
 		entries: [
 			{ binding: 0, resource: floatUniformsBuffer },
 			{ binding: 1, resource: meanDensityScoreBuffer },
-			{ binding: 2, resource: uintUniformsBuffer },
-			{ binding: 3, resource: textureIn.createView() },
-			{ binding: 4, resource: densityScoresBuffer },
-			{ binding: 5, resource: textureOut.createView() }
+			{ binding: 2, resource: textureIn.createView() },
+			{ binding: 3, resource: densityScoresBuffer },
+			{ binding: 4, resource: textureOut.createView() }
 		]
 	});
 
 	device.queue.writeBuffer(floatUniformsBuffer, 0, floatUniformsData);
 
-	for (let tileX = 0; tileX < size.width; tileX += tileSize) {
-		for (let tileY = 0; tileY < size.height; tileY += tileSize) {
-			uintUniformsData[0] = tileX;
-			uintUniformsData[1] = tileY;
-			device.queue.writeBuffer(uintUniformsBuffer, 0, uintUniformsData);
+	const encoder = device.createCommandEncoder({
+		label: 'mean shift cluster encoder'
+	});
+	const pass = encoder.beginComputePass({
+		label: 'mean shift cluster compute pass'
+	});
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.dispatchWorkgroups(Math.ceil(size.width / 16), Math.ceil(size.height / 16));
+	pass.end();
 
-			const encoder = device.createCommandEncoder({
-				label: 'mean shift cluster encoder'
-			});
-			const pass = encoder.beginComputePass({
-				label: 'mean shift cluster compute pass'
-			});
-			pass.setPipeline(pipeline);
-			pass.setBindGroup(0, bindGroup);
-			pass.dispatchWorkgroups(Math.ceil(tileSize / 16), Math.ceil(tileSize / 16));
-			pass.end();
-
-			device.queue.submit([encoder.finish()]);
-		}
-	}
+	device.queue.submit([encoder.finish()]);
 }
 
 async function gaussianBlurPass(
@@ -1638,7 +1458,8 @@ async function edgeVisualizationPass(
 
 	context.configure({
 		device,
-		format: canvas_format
+		format: canvas_format,
+		alphaMode: 'premultiplied'
 	});
 
 	const renderPassDescriptor: GPURenderPassDescriptor = {
@@ -1680,16 +1501,14 @@ function compute_gaussian_kernel(radius: number): Float32Array {
 	return weights;
 }
 
-async function readU32Buffer(device: GPUDevice, buffer: GPUBuffer): Promise<number> {
-	const byteLength = Uint32Array.BYTES_PER_ELEMENT; // TODO: should this just be set to the number 4? or is this fine?
-	const readback = device.createBuffer({
-		label: 'u32 readback buffer',
-		size: byteLength,
-		usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-	});
-
+/// Function for reading back a buffer with a single U32 value in it
+async function readU32Buffer(
+	device: GPUDevice,
+	buffer: GPUBuffer,
+	readback: GPUBuffer
+): Promise<number> {
 	const encoder = device.createCommandEncoder({ label: 'u32 readback encoder' });
-	encoder.copyBufferToBuffer(buffer, 0, readback, 0, byteLength);
+	encoder.copyBufferToBuffer(buffer, 0, readback, 0, 4); // 4 is the size of a u32
 	device.queue.submit([encoder.finish()]);
 	await readback.mapAsync(GPUMapMode.READ);
 

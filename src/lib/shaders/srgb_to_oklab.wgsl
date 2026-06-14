@@ -40,7 +40,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     );
     let srgb = textureLoad(srgb_texture, texel, 0);
 
-    let linear = srgb_to_linear(srgb.rgb);
+    let premult_rgb = srgb.rgb * srgb.a;
+
+    let linear = srgb_to_linear(premult_rgb.rgb);
 
     let oklab = linear_to_oklab(linear);
 
@@ -57,12 +59,12 @@ fn linear_to_oklab(linear: vec3f) -> vec3f {
     let im1 = mat3x3f(0.4121656120, 0.2118591070, 0.0883097947,
                           0.5362752080, 0.6807189584, 0.2818474174,
                           0.0514575653, 0.1074065790, 0.6302613616);
-                       
+
     let im2 = mat3x3f(0.2104542553, 1.9779984951, 0.0259040371,
                           0.7936177850, -2.4285922050, 0.7827717662,
                           -0.0040720468, 0.4505937099, -0.8086757660);
-                       
+
     let lms: vec3f = im1 * linear;
-            
+
     return im2 * (sign(lms) * pow(abs(lms), vec3(1.0/3.0)));
 }

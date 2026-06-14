@@ -38,8 +38,10 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
         return;
     }
 
-    let jump_next = edge_data_in[edge_index].jump_next_idx;
-    let face_id = edge_data_in[edge_index].face_id;
+    let current_in = edge_data_in[edge_index];
+
+    let jump_next = current_in.jump_next_idx;
+    let face_id = current_in.face_id;
 
     // if (next_edge == INVALID || next_edge >= params.edge_count) {
     //     edge_data_out[edge_index] = next_edge;
@@ -47,13 +49,16 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     //     return;
     // }
 
-    let jump_next_next = edge_data_in[jump_next].jump_next_idx;
-    let face_next = edge_data_in[jump_next].face_id;
+    let next_in = edge_data_in[jump_next];
+
+    let jump_next_next = next_in.jump_next_idx;
+    let face_next = next_in.face_id;
 
     // copy old state
-    edge_data_out[edge_index] = edge_data_in[edge_index];
+    edge_data_out[edge_index] = current_in;
 
     // update to new info
     edge_data_out[edge_index].jump_next_idx = jump_next_next;
     edge_data_out[edge_index].face_id = min(face_id, face_next);
+    edge_data_out[edge_index].color = (current_in.color + next_in.color) / 2f;
 }

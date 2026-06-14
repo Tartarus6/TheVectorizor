@@ -36,23 +36,42 @@ export async function faceBuffersToSvg(
 	const subpixelPoints: EdgePoint[] = new Array(width * height);
 	const connectionsDataIdx: number[] = new Array(width * height);
 	for (let index = 0; index < width * height; index += 1) {
+		const x = index % width;
+		const y = Math.floor(index / width);
 		const base = index * 4;
 		const theta = gradTexData[base + 1];
 		const offset = gradTexData[base + 2];
 		const idx = edgeTexData[base + 2];
 
+		let subpixel_x;
+		let subpixel_y;
+		if (x == 0) {
+			subpixel_x = 0;
+		} else if (x == width - 1) {
+			subpixel_x = width;
+		} else {
+			subpixel_x = x + 0.5 + Math.cos(theta) * offset;
+		}
+
+		if (y == 0) {
+			subpixel_y = 0;
+		} else if (y == height - 1) {
+			subpixel_y = height;
+		} else {
+			subpixel_y = y + 0.5 + Math.sin(theta) * offset;
+		}
+
 		subpixelPoints[index] = {
-			x: (index % width) + 0.5 + Math.cos(theta) * offset,
-			y: Math.floor(index / width) + 0.5 + Math.sin(theta) * offset
+			x: subpixel_x,
+			y: subpixel_y
 		};
 		connectionsDataIdx[index] = idx;
 	}
 
 	type FaceAccumulator = {
 		startEdge: number;
-		minConnectionIndex: number;
-		colorSum: [number, number, number, number];
-		count: number;
+		minPixelIdx: number;
+		color: [number, number, number, number];
 	};
 
 	const faces = new Map<number, FaceAccumulator>();
@@ -71,48 +90,91 @@ export async function faceBuffersToSvg(
 		if (!entry) {
 			entry = {
 				startEdge: connectionIndex,
-				minConnectionIndex: connection.posIdx,
-				colorSum: [0, 0, 0, 0],
-				count: 0
+				minPixelIdx: connection.posIdx,
+				color: [0, 0, 0, 0]
 			};
 			faces.set(connection.faceId, entry);
 		}
 
 		const pixelIndex = connection.posIdx;
-		if (pixelIndex < entry.minConnectionIndex) {
-			entry.minConnectionIndex = pixelIndex;
+		if (pixelIndex < entry.minPixelIdx) {
+			entry.minPixelIdx = pixelIndex;
 		}
 
-		entry.colorSum[0] += connection.color[0];
-		entry.colorSum[1] += connection.color[1];
-		entry.colorSum[2] += connection.color[2];
-		entry.colorSum[3] += connection.color[3];
-		entry.count += 1;
+		if (connectionIndex == connection.faceId) {
+			entry.color[0] = connection.color[0];
+			entry.color[1] = connection.color[1];
+			entry.color[2] = connection.color[2];
+			entry.color[3] = connection.color[3];
+		}
+
+		// entry.colorSum[0] += connection.color[0];
+		// entry.colorSum[1] += connection.color[1];
+		// entry.colorSum[2] += connection.color[2];
+		// entry.colorSum[3] += connection.color[3];
+		// entry.count += 1;
 	}
 
 	const facePaths: FacePath[] = [];
 	for (const [, entry] of faces) {
 		const { startEdge: startConnection } = entry;
+
 		const points: EdgePoint[] = [];
-		const visited = new Set<number>();
+
+		// edge -> point index in current contour
+		const visitedEdgeToPointIndex = new Map<number, number>();
+
+		// edges belonging to discarded loops
+		const ignoredEdges = new Set<number>();
+
+		// path history
+		const pathEdges: number[] = [];
+
 		let currentConnectionIdx = startConnection;
 		let closed = false;
 
 		for (let step = 0; step <= connectionCount; step += 1) {
-			if (currentConnectionIdx === INVALID_CONNECTION || visited.has(currentConnectionIdx)) {
+			if (currentConnectionIdx === INVALID_CONNECTION) {
 				break;
+			}
+
+			// hit the starting edge again => proper closure
+			if (currentConnectionIdx === startConnection && pathEdges.length > 0) {
+				closed = true;
+				break;
+			}
+
+			// somehow walked back into a loop that was discarded
+			if (ignoredEdges.has(currentConnectionIdx)) {
+				break;
+			}
+
+			const existingIndex = visitedEdgeToPointIndex.get(currentConnectionIdx);
+
+			// false loop detected
+			if (existingIndex !== undefined) {
+				const loopEdges = pathEdges.slice(existingIndex);
+
+				for (const edge of loopEdges) {
+					ignoredEdges.add(edge);
+					visitedEdgeToPointIndex.delete(edge);
+				}
+
+				pathEdges.length = existingIndex;
+				points.length = existingIndex;
+
+				currentConnectionIdx = connectionsData[currentConnectionIdx].nextConnectionIdx;
+
+				continue;
 			}
 
 			const connection = connectionsData[currentConnectionIdx];
 
-			visited.add(currentConnectionIdx);
-			const pixelIndex = connection.posIdx;
-			points.push(subpixelPoints[pixelIndex]);
+			visitedEdgeToPointIndex.set(currentConnectionIdx, pathEdges.length);
 
-			if (connection.nextConnectionIdx === startConnection) {
-				closed = true;
-				break;
-			}
+			pathEdges.push(currentConnectionIdx);
+
+			points.push(subpixelPoints[connection.posIdx]);
 
 			currentConnectionIdx = connection.nextConnectionIdx;
 		}
@@ -121,13 +183,14 @@ export async function faceBuffersToSvg(
 			continue;
 		}
 
+		// remove negative area shapes as well as small ones (small ones can be created from small loops in neighbor connections)
 		const area = polygonSignedArea(points);
-		if (area <= 0) {
+		if (area <= 1) {
 			continue;
 		}
 
-		const color = averageColor(entry.colorSum, entry.count);
-		facePaths.push({ points, color, minPixelIndex: entry.minConnectionIndex });
+		const color = averageColor(entry.color);
+		facePaths.push({ points, color, minPixelIndex: entry.minPixelIdx });
 	}
 
 	facePaths.sort((a, b) => a.minPixelIndex - b.minPixelIndex);
@@ -141,22 +204,18 @@ export async function faceBuffersToSvg(
 			});
 
 			const d = `${commands.join(' ')} Z`;
-			return `<path fill="${path.color}" d="${d}" />`;
+			return `<path fill="${path.color}" stroke="${path.color}" stroke-width="0.5px" d="${d}" />`;
 		})
 		.join('');
 
 	return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" fill="none" stroke="none" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">${pathElements}</svg>`;
 }
 
-function averageColor(colorSum: [number, number, number, number], count: number): string {
-	if (count === 0) {
-		return '#000000';
-	}
-
-	const r = clamp01(colorSum[0] / count);
-	const g = clamp01(colorSum[1] / count);
-	const b = clamp01(colorSum[2] / count);
-	const a = clamp01(colorSum[3] / count);
+function averageColor(colorSum: [number, number, number, number]): string {
+	const r = clamp01(colorSum[0]);
+	const g = clamp01(colorSum[1]);
+	const b = clamp01(colorSum[2]);
+	const a = clamp01(colorSum[3]);
 
 	if (a < 0.999) {
 		const r8 = Math.round(r * 255);
