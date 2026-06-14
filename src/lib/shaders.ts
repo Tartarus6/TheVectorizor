@@ -73,6 +73,8 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: for uploads, make sure they're the right kind of image file. currently uploading something like an svg freaks it out
 // TODO: fix out of memory errors (`Uncaptured WebGPU error: Not enough memory left.`, `DOMException: Not enough memory left.`)
 // TODO: fix chromium performance. it really really sucks for some reason
+// TODO: should blur be removed? it doesn't seem to help.
+// TODO: make a page on tar's site that explains in a lot more depth how The Vectorizor works
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
