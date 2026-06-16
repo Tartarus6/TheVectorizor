@@ -5,7 +5,6 @@
 	import JSZip from 'jszip';
 
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
-	// TODO: ability to paste images
 
 	type Job = {
 		file: File;
@@ -108,8 +107,8 @@
 		try {
 			job.status = 'processing';
 
-			const v = /svg|ai|esl/.test(job.file.type);
-			if (v) {
+			// check if file is of vector type
+			if (/svg|ai|esl/.test(job.file.type)) {
 				throw new Error(job.file.type + ' is of vector image type');
 			}
 			const bitmap = await createImageBitmap(job.file);
