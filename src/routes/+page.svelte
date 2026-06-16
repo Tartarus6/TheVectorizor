@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { run_shader } from '$lib/shaders';
 	import { optimize } from 'svgo/browser';
 	import JSZip from 'jszip';
@@ -36,6 +37,15 @@
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
 
+	// evilllll global event listener
+	onMount(() => {
+		document?.addEventListener('paste', on_image_pasted);
+	});
+
+	onDestroy(() => {
+		document?.removeEventListener('paste', on_image_pasted);
+	});
+
 	function addFiles(files: File[]) {
 		jobs.push(
 			...files.map(
@@ -45,6 +55,25 @@
 				})
 			)
 		);
+	}
+
+	function on_image_pasted(e: ClipboardEvent) {
+		console.log('image pasted');
+		const image = e.clipboardData?.items[0];
+
+		if (image?.type.indexOf('image') !== 0) {
+			console.log(image?.type + ' is not image');
+			return;
+		}
+
+		const file = image.getAsFile();
+
+		if (!file) {
+			return;
+		}
+
+		const files: File[] = Array.of(file);
+		addFiles(files);
 	}
 
 	function onFilesSelected(e: Event) {
