@@ -1,20 +1,22 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { run_shader } from '$lib/shaders';
 	import { optimize } from 'svgo/browser';
 	import JSZip from 'jszip';
 
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
-	// TODO: ability to paste images
 
 	type Job = {
 		file: File;
 		image?: ImageBitmap;
 		svgBlob?: Blob;
 		status: 'pending' | 'processing' | 'done' | 'error';
+		eMessage?: string;
 	};
 
 	let jobs = $state<Job[]>([]);
 	let working = $state(false);
+	let showError = $state(false);
 
 	// Derived state for UI
 	let pendingJobs = $derived(jobs.filter((j) => j.status === 'pending'));
@@ -36,6 +38,12 @@
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
 
+	// evilllll global event listener
+	onMount(() => {
+		document!.addEventListener('paste', on_image_pasted);
+		return () => document.removeEventListener('paste', on_image_pasted);
+	});
+
 	function addFiles(files: File[]) {
 		jobs.push(
 			...files.map(
@@ -47,8 +55,49 @@
 		);
 	}
 
+	function on_image_pasted(e: ClipboardEvent) {
+		const image = e.clipboardData?.items[0];
+
+		if (!image) {
+			console.error('pasted item not found');
+			return;
+		}
+
+		if (image.type.indexOf('image') !== 0) {
+			console.error('Pasted non image input');
+			return;
+		}
+
+		//blocking svg as it starts
+		// if (/svg|ai|esl/.test(image.type)) {
+		// 	console.error('Tried vectorizing a vector image type');
+		// 	alert('cannot vectorize vector image type');
+		// 	return;
+		// }
+
+		const file = image.getAsFile();
+
+		if (!file) {
+			return;
+		}
+
+		const files: File[] = Array.of(file);
+		addFiles(files);
+	}
+
 	function onFilesSelected(e: Event) {
 		const files = Array.from((e.target as HTMLInputElement).files ?? []);
+
+		// blocking the svg as it get uploaded
+		// const nonvector = files.filter((e) => {
+		// 	const v = /svg|ai|esl/.test(e.type);
+		// 	if (v) {
+		// 		console.error(e.type + ' is of vector image type');
+		// 		alert('cannot vectorize vector image type');
+		// 	}
+		// 	return !v;
+		// });
+		// addFiles(nonvector);
 
 		addFiles(files);
 	}
@@ -57,6 +106,11 @@
 	async function processJob(job: Job) {
 		try {
 			job.status = 'processing';
+
+			// check if file is of vector type
+			if (/svg|ai|esl/.test(job.file.type)) {
+				throw new Error(job.file.type + ' is of vector image type');
+			}
 			const bitmap = await createImageBitmap(job.file);
 
 			// Set up canvases for this job
@@ -112,6 +166,8 @@
 		} catch (err) {
 			console.error(err);
 			job.status = 'error';
+			const errMessage = err as Error;
+			job.eMessage = errMessage.message;
 		}
 	}
 
@@ -245,6 +301,7 @@
 		<div class="font-semibold">Add Images</div>
 
 		<div class="text-sm">Click or drag images here</div>
+		<div class="text-sm">or paste anywhere</div>
 
 		<div class="text-xs">Multiple images supported</div>
 
@@ -272,6 +329,12 @@
 			>
 				<span>
 					{job.file.name} - {job.status}
+					{#if job.status === 'error'}
+						<button class="bg-red-500" onclick={() => (showError = !showError)}>></button>
+						{#if showError}
+							<span>{job.eMessage}</span>
+						{/if}
+					{/if}
 				</span>
 			</div>
 		{/each}
