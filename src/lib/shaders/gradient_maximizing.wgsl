@@ -183,33 +183,49 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     textureStore(out_edge_tex, texel, vec4u(0u));
 }
 
+/*
+Devernay sub-pixel edge localization.
+
+The true edge lies at the maximum of the gradient magnitude along the gradient
+normal. We sample the gradient magnitude at this pixel (m0) and at its two
+neighbors one pixel away along the unit gradient direction (m_minus, m_plus),
+then fit a parabola through the three samples. The offset of the parabola's
+vertex from the center is:
+
+    offset = 0.5 * (m_minus - m_plus) / (m_minus - 2*m0 + m_plus)
+
+Because non-maximum suppression already guarantees m0 is a local maximum along
+this axis, the denominator is negative and the result is provably bounded to
+[-0.5, 0.5] pixels. The offset is applied downstream as
+`pixel_center + (cos theta, sin theta) * offset`.
+
+This replaces the earlier magnitude-weighted centroid, which sampled off-axis
+(biasing the estimate across the edge) and had no such bound.
+*/
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
-	let neighbor_checks: u32 = 2; // number of neighbor checks in each direction (so value of 2 would mean checking 4 neighbors + 1 for the pixel itsself)
-	let neighbor_check_distance: f32 = 1.5;
     let theta = grad_pixel.y;
+    let g = vec2f(cos(theta), sin(theta)); // unit gradient direction (edge normal)
 
-    var weighted_offset_sum = 0f; // sum of pixel offsets in direction of gradient weighted by that pixel's gradient magnitude
-    var weights_sum = 0f;         // sum of the gradient magnitudes (for normalizing)
+    let center = vec2f(texel) + vec2f(0.5, 0.5);
+    let uv_minus = (center - g) / vec2f(dims);
+    let uv_plus = (center + g) / vec2f(dims);
 
-    for (var mult: i32 = -i32(neighbor_checks); mult <= i32(neighbor_checks); mult += 1) {
-    	let offset_magnitude = f32(mult) * neighbor_check_distance / f32(neighbor_checks);
-        let neighbor_offset = vec2f(cos(theta), sin(theta)) * offset_magnitude;
-        let neighbor_pos_uv = (vec2f(texel) + neighbor_offset) / vec2f(dims);
+    let m0 = grad_pixel.x; // already sampled at the pixel center upstream
+    let m_minus = textureSampleLevel(grad_tex, grad_sampler, uv_minus, 0.0).x;
+    let m_plus = textureSampleLevel(grad_tex, grad_sampler, uv_plus, 0.0).x;
 
-        let neighbor_pix = textureSampleLevel(grad_tex, grad_sampler, neighbor_pos_uv, 0.0);
-        let neighbor_grad_mag = neighbor_pix.x;
+    let denom = m_minus - 2f * m0 + m_plus;
 
-        // TODO: figure out how to weight it so that neighbors who's gradient alligns better are weighted higher than missaligned neighbors
-        let weight = neighbor_grad_mag;
-
-        weighted_offset_sum += offset_magnitude * weight;
-        weights_sum += weight;
+    // Degenerate (flat) profile: leave the point at the pixel center.
+    if (abs(denom) < 1e-6) {
+        return 0f;
     }
 
-    let subpixel_offset = weighted_offset_sum / weights_sum;
+    let subpixel_offset = 0.5f * (m_minus - m_plus) / denom;
 
-    // return 0;
-    return subpixel_offset;
+    // Guaranteed within [-0.5, 0.5] for a true local maximum; clamp defends
+    // against noise / saddle cases where m0 is not strictly the peak.
+    return clamp(subpixel_offset, -0.5f, 0.5f);
 }
 
 fn get_section(theta: f32, section_count: u32) -> u32 {
