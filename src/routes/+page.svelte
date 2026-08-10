@@ -300,7 +300,7 @@
 		{/if}
 		{#each jobs as job (job.file)}
 			<div
-				class="{job.status == 'done' ? 'bg-green-700' : ''} {job.status == 'processing'
+				class="flex flex-row gap-2 {job.status == 'done' ? 'bg-green-700' : ''} {job.status == 'processing'
 					? 'bg-yellow-700'
 					: ''} {job.status == 'pending' ? 'bg-gray-700' : ''} {job.status == 'error'
 					? 'bg-red-700'
@@ -308,13 +308,13 @@
 			>
 				<span>
 					{job.file.name} - {job.status}
-					{#if job.status === 'error'}
-						<button class="bg-red-500" onclick={() => (showError = !showError)}>></button>
-						{#if showError}
-							<span>{job.eMessage}</span>
-						{/if}
-					{/if}
 				</span>
+				{#if job.status === 'error'}
+					<button class="bg-red-500 float-right w-6" onclick={() => (showError = !showError)}>></button>
+					{#if showError}
+						<span>{job.eMessage}</span>
+					{/if}
+				{/if}
 			</div>
 		{/each}
 	</div>
