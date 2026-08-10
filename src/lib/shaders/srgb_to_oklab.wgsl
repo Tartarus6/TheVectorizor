@@ -40,7 +40,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     );
     let srgb = textureLoad(srgb_texture, texel, 0);
 
-    let premult_rgb = srgb.rgb * srgb.a;
+    let premult_rgb = srgb.rgb * srgb.a; // apply alpha premultiplication (for correct color/transparency handling)
 
     let linear = srgb_to_linear(premult_rgb.rgb);
 

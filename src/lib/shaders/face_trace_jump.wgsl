@@ -17,14 +17,6 @@ struct EdgeData {
     color: vec4f,       // average color
 }
 
-/*
-edge_tex (rgba16uint):
-	x → edge flag        (whether this pixel is part of an edge)
-	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-	z → edge_id          (unique edge id, corresponds to the starting index of the pixel's connections)
-	w → 0                (unused)
-*/
-
 @group(0) @binding(0) var<uniform> params: Params;
 @group(0) @binding(1) var<storage, read> edge_data_in: array<EdgeData>;
 @group(0) @binding(2) var<storage, read_write> edge_data_out: array<EdgeData>;

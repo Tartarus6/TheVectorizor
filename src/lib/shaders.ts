@@ -73,6 +73,40 @@ import { faceBuffersToSvg } from '$lib/face_svg';
 // TODO: for uploads, make sure they're the right kind of image file. currently uploading something like an svg freaks it out
 // TODO: fix out of memory errors (`Uncaptured WebGPU error: Not enough memory left.`, `DOMException: Not enough memory left.`)
 // TODO: fix chromium performance. it really really sucks for some reason
+// TODO: should blur be removed? it doesn't seem to help.
+// TODO: make a page on tar's site that explains in a lot more depth how The Vectorizor works
+// TODO: rename gaussian gradient to just gradient or something (it doesn't have anything to do with gaussian anything)
+
+/*
+# Notes about the complex image issue
+On complex images, the svg will suddenly cut off at a certain point. It looks to cut of at a near-perfect horizontal line.
+This problem only happens on larger, more complex images.
+
+In my testing, i used a known-bad image. It would suddenly cut off aboiut half way down the image (top half was there, bottom half not)
+By looking at the edge visualizer, i can see that the top half looks correct, and the bottom half is all green (all being recognized as the same face)
+
+To test further, i added a 200-ish transparent pixel gap around the known-bad image. This means that the outer edge of the image is completely undisturbed,
+and serves as a known-good topology. When i reran the test, the outer edges also got all whacky. Below the line where the image inside goes all the same color, the outer edge also goes that
+color. That's very strange, since they are disconnected.
+
+My next test was to add controlled edges in the gap of the image. I added squares in the gap (making sure they dont touch the known-good outer edge or the
+known-bad inner image). The result was that the line of buggy face_id moved up.
+
+So then i tried removing some of the squared i added in the gap. Which moved the line down, but not all the way down to where it was before any squares were added.
+
+This seems to indicate that, once a certain number of connections is present, the face tracing breaks somehow.
+
+## Cause (fixed)
+The edge_id / base connection index was stored in the z channel of the rgba16uint edge texture,
+which only holds 0..65535. Once the global connection counter (assigned in raster order in
+reciprocating_neighbors.wgsl) crossed 65536, every subsequent pixel's base index was truncated to
+its low 16 bits and collided with slots already owned by earlier pixels. That corrupted the face
+graph below that scanline (everything merged into one face), producing the hard horizontal cutoff.
+More detail anywhere made the counter reach 65536 sooner, moving the line up.
+
+Fix: the edge_id is now split across z (low 16 bits) and w (high 16 bits), reconstructed as
+`z | (w << 16)` wherever it's read (face_trace_init, edge_visualization, face_svg.ts).
+*/
 
 // TODO: move this const somewhere better
 // TODO: figure out what a good value for this const is
@@ -314,7 +348,7 @@ export async function run_shader(
 	endTime = performance.now();
 	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
-	// --- Face Tracing Init (directed edges + face ids) ---
+	// --- Face Tracing Setup (directed edges + face ids) ---
 	console.log();
 	console.log('Face Tracing Setup:');
 
@@ -377,6 +411,15 @@ export async function run_shader(
 
 	// const finalConnectionData = faceBuffers.edgeDataPing;
 
+	// --- Edge Visualization ---
+	await edgeVisualizationPass(
+		device,
+		pipelines.edgeVisualization,
+		final_edge_texture,
+		finalConnectionData,
+		edgeCanvas
+	);
+
 	// --- Svg Creation ---
 	startTime = performance.now();
 	console.log();
@@ -401,9 +444,6 @@ export async function run_shader(
 	// 	false,
 	// 	clusterCanvas
 	// );
-
-	// --- Edge Visualization ---
-	await edgeVisualizationPass(device, pipelines.edgeVisualization, final_edge_texture, edgeCanvas);
 
 	return [true, svg];
 }
@@ -1448,12 +1488,24 @@ async function edgeVisualizationPass(
 	device: GPUDevice,
 	pipeline: GPURenderPipeline,
 	edgeTexture: GPUTexture,
+	finalConnectionData: GPUBuffer,
 	context: GPUCanvasContext
 ): Promise<void> {
 	const bindGroup = device.createBindGroup({
 		label: 'edge visualization bind group',
 		layout: pipeline.getBindGroupLayout(0),
-		entries: [{ binding: 0, resource: edgeTexture.createView() }]
+		entries: [
+			{
+				binding: 0,
+				resource: edgeTexture.createView()
+			},
+			{
+				binding: 1,
+				resource: {
+					buffer: finalConnectionData
+				}
+			}
+		]
 	});
 
 	context.configure({

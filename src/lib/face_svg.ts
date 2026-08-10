@@ -41,7 +41,8 @@ export async function faceBuffersToSvg(
 		const base = index * 4;
 		const theta = gradTexData[base + 1];
 		const offset = gradTexData[base + 2];
-		const idx = edgeTexData[base + 2];
+		// edge_id is split across the z (low 16 bits) and w (high 16 bits) channels
+		const idx = edgeTexData[base + 2] | (edgeTexData[base + 3] << 16);
 
 		let subpixel_x;
 		let subpixel_y;

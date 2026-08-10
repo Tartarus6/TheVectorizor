@@ -50,7 +50,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     let theta = grad_pix.y;
 
     // if pixel already has connections, then skip it
-    // note: a packed connections value of 0 is not possible since that'd mean both chosen candidates are the same. so that can be used to ignore
     if (packed_connections != 0u) {
     	return;
     }

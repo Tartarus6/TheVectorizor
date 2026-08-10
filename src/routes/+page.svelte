@@ -5,6 +5,7 @@
 	import JSZip from 'jszip';
 
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
+	// TODO: add ability to re-vectorize after changing settings or whatever
 
 	type Job = {
 		file: File;
@@ -56,33 +57,11 @@
 	}
 
 	function on_image_pasted(e: ClipboardEvent) {
-		const image = e.clipboardData?.items[0];
+		const file = Array.from(e.clipboardData?.files ?? [])[0];
 
-		if (!image) {
-			console.error('pasted item not found');
-			return;
-		}
+		if (!file) return;
 
-		if (image.type.indexOf('image') !== 0) {
-			console.error('Pasted non image input');
-			return;
-		}
-
-		//blocking svg as it starts
-		// if (/svg|ai|esl/.test(image.type)) {
-		// 	console.error('Tried vectorizing a vector image type');
-		// 	alert('cannot vectorize vector image type');
-		// 	return;
-		// }
-
-		const file = image.getAsFile();
-
-		if (!file) {
-			return;
-		}
-
-		const files: File[] = Array.of(file);
-		addFiles(files);
+		addFiles([file]);
 	}
 
 	function onFilesSelected(e: Event) {

@@ -8,8 +8,8 @@ color sample for each directed edge.
 edge_tex (rgba16uint):
 	x → edge flag        (whether this pixel is part of an edge)
 	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-	z → edge_id          (unique edge id, corresponds to the starting index of the pixel's connections)
-	w → 0                (unused)
+	z → edge_id low      (low 16 bits of the unique edge id / starting connection index)
+	w → edge_id high     (high 16 bits of the edge id; full id = z | (w << 16))
 color_tex (rgba8unorm or rgba16float):
     sampled to determine face color
 
@@ -114,7 +114,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 
 // Helper to find which "slot" a specific direction occupies for a pixel
 fn get_sparse_index(pixel_coords: vec2i, dir: u32, packed_mask: u32) -> u32 {
-	let base = textureLoad(edge_tex, pixel_coords, 0).z;
+	let edge_pix = textureLoad(edge_tex, pixel_coords, 0);
+	// edge_id is split across z (low 16 bits) and w (high 16 bits) to hold a full u32
+	let base = edge_pix.z | (edge_pix.w << 16u);
 
 	// The direction's slot is the base index + how many bits were set before it
 	let mask_before = (1u << dir) - 1u;

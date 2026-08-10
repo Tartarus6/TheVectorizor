@@ -14,8 +14,8 @@ and adding a connection to the "hub" pixel that's in the intersection.
 edge_tex (rgba16uint):
 	x → edge flag        (whether this pixel is part of an edge)
 	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-	z → edge_id          (unique edge id, corresponds to the starting index of the pixel's connections)
-	w → 0                (unused)
+	z → edge_id low      (low 16 bits of the unique edge id / starting connection index)
+	w → edge_id high     (high 16 bits of the edge id; full id = z | (w << 16))
 */
 @group(0) @binding(0) var edge_tex: texture_storage_2d<rgba16uint, read>;
 @group(0) @binding(1) var edge_out: texture_storage_2d<rgba16uint, write>;
@@ -86,7 +86,9 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
  	// Reserve a block of indices for this pixel's active directions
     let base_idx = atomicAdd(&global_edge_id_counter, active_dirs);
 
-	textureStore(edge_out, texel, vec4u(in_edge_pix.x, updated_packed, base_idx, in_edge_pix.w));
+	// base_idx can exceed 65535 on complex images, so split it across the z (low 16 bits)
+	// and w (high 16 bits) channels to avoid truncation in this rgba16uint texture.
+	textureStore(edge_out, texel, vec4u(in_edge_pix.x, updated_packed, base_idx & 0xffffu, base_idx >> 16u));
 }
 
 // TODO: remove this code duplication if possible. maybe there's a way to shader this const and functions between shaders, idk.
