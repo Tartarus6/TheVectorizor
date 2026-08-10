@@ -160,9 +160,15 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 	    let neighbor_grad_mag = neighbor_pix.x;
 
 	    // if the neighbor has a greater magnitude, then our pixel isn't the greatest
-	    if (grad_mag <= neighbor_grad_mag) {
+	    if (grad_mag < neighbor_grad_mag) {
 	        greatest = false;
+			continue;
 	    }
+
+		// break ties by masking a checker-board pattern
+		if ((texel.x + texel.y) % 2 == 0) {
+			greatest = false;
+		}
     }
 
     // TODO: might be worth it to move subpixel shifting to the edge tracing steps to improve performance

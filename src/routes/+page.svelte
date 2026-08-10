@@ -32,7 +32,7 @@
 	let base_bandwidth = $state(0.05);
 	let num_cluster_passes = $state(5);
 	let num_edge_trace_passes = $state(300);
-	let blur_radius = $state(2);
+	let blur_radius = $state(1);
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let blurred_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();

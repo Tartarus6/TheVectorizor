@@ -200,9 +200,6 @@ export async function run_shader(
 	// TODO: variable texture pointers to make it easier to keep track of which textures are up to date
 
 	// --- Srgb → OkLab ---
-	let startTime = performance.now();
-	console.log();
-	console.log('Srgb -> OkLab:');
 	await srgbToOklabPass(
 		device,
 		pipelines.srgbToOklab,
@@ -210,13 +207,8 @@ export async function run_shader(
 		textures.inputSrgb,
 		textures.oklabPing
 	);
-	let endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Blur ---
-	startTime = performance.now();
-	console.log();
-	console.log('Pre-cluster Blur:');
 	await gaussianBlurPass(
 		device,
 		{ gaussianBlurH: pipelines.gaussianBlurH, gaussianBlurV: pipelines.gaussianBlurV },
@@ -225,17 +217,11 @@ export async function run_shader(
 		textures.oklabPing,
 		textures.oklabPong
 	);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// -- OkLab → Srgb (blur visualization)
 	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, blurCanvas);
 
 	// --- Mean Shift Cluster Steps ---
-	startTime = performance.now();
-
-	console.log();
-	console.log('Mean Shift Cluster Passes:');
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
 		const clusterInput = (pass_index + 1) % 2 === 1 ? textures.oklabPong : textures.oklabPing;
 		const clusterOutput = (pass_index + 1) % 2 === 1 ? textures.oklabPing : textures.oklabPong;
@@ -268,29 +254,18 @@ export async function run_shader(
 		);
 	}
 
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
-
 	// -- OkLab → Srgb (cluster visualization)
 	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
 
 	// --- Gaussian Gradient ---
-	startTime = performance.now();
-	console.log();
-	console.log('GaussGradient:');
 	await gaussianGradientPass(
 		device,
 		pipelines.gaussianGradient,
 		num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
 		textures.gradientPing
 	);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Gradient Maximizing (Edge Seeding) ---
-	startTime = performance.now();
-	console.log();
-	console.log('Gradient Max:');
 	await gradientMaxPass(
 		device,
 		pipelines.gradientMax,
@@ -300,13 +275,8 @@ export async function run_shader(
 		gradientMaxSampler,
 		size
 	);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Edge Tracing Steps ---
-	startTime = performance.now();
-	console.log();
-	console.log('Edge Trace Passes:');
 	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
 	let final_edge_texture = textures.edgePing;
 	for (
@@ -327,13 +297,7 @@ export async function run_shader(
 		final_edge_texture = outputTexture;
 	}
 
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
-
 	// --- Reciprocating Neighbors ---
-	startTime = performance.now();
-	console.log();
-	console.log('Reciprocating Neighbors:');
 	const reciprocatingNeighborsOutput =
 		final_edge_texture === textures.edgePing ? textures.edgePong : textures.edgePing;
 	await reciprocatingNeighborsPass(
@@ -345,14 +309,8 @@ export async function run_shader(
 		size
 	);
 	final_edge_texture = reciprocatingNeighborsOutput;
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Setup (directed edges + face ids) ---
-	console.log();
-	console.log('Face Tracing Setup:');
-
-	const t1 = performance.now();
 	const connectionCountNumber = await readU32Buffer(
 		device,
 		buffers.connectionCount,
@@ -360,14 +318,8 @@ export async function run_shader(
 	);
 	// const AVG_EDGE_DEGREE = 1; // safe for virtually all images
 	// const connectionCountNumber = size.width * size.height * AVG_EDGE_DEGREE;
-	const t2 = performance.now();
 	const faceBuffers = await createFaceTraceBuffers(device, connectionCountNumber);
-	const t3 = performance.now();
-	console.log(`readback: ${(t2 - t1).toFixed(2)}ms, buffer creation: ${(t3 - t2).toFixed(2)}ms`);
 
-	startTime = performance.now();
-	console.log();
-	console.log('Face Trace Init:');
 	await faceTraceInitPass(
 		device,
 		pipelines.faceTraceInit,
@@ -376,13 +328,8 @@ export async function run_shader(
 		faceBuffers.edgeDataPing,
 		size
 	);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// --- Face Tracing Pointer Jumping ---
-	console.log();
-	console.log('Face Trace Passes:');
-	startTime = performance.now();
 	const faceTracePasses = Math.ceil(Math.log2(Math.max(1, connectionCountNumber)));
 	// const faceTracePasses = 500;
 	let connectionDataIn = faceBuffers.edgeDataPing;
@@ -406,9 +353,6 @@ export async function run_shader(
 		connectionDataOut = temp;
 	}
 
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
-
 	// const finalConnectionData = faceBuffers.edgeDataPing;
 
 	// --- Edge Visualization ---
@@ -421,9 +365,6 @@ export async function run_shader(
 	);
 
 	// --- Svg Creation ---
-	startTime = performance.now();
-	console.log();
-	console.log('Face SVG:');
 	const svg = await faceBuffersToSvg(
 		device,
 		textures.gradientPong,
@@ -433,8 +374,6 @@ export async function run_shader(
 		size.height,
 		connectionCountNumber
 	);
-	endTime = performance.now();
-	console.log(`execution time: ${(endTime - startTime).toFixed(2)}ms`);
 
 	// // -- OkLab → Srgb (just for visualization)
 	// await oklabToSrgbPass(
@@ -1435,7 +1374,7 @@ async function faceTraceInitPass(
 		entries: [
 			{ binding: 0, resource: edgeTexture.createView() },
 			{ binding: 1, resource: colorTexture.createView() },
-			{ binding: 2, resource: { buffer: edgeDataOut } }
+			{ binding: 2, resource: { buffer: edgeDataOut } },
 		]
 	});
 
