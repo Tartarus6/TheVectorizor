@@ -35,14 +35,14 @@ fn cs_main(@builtin(global_invocation_id) id: vec3u) {
     // count the total weights to divide by later
     var weights_sum = 0f;
 
-    var checks_per_ring = 12u;
+    var checks_per_ring = 8u; // should be a multiple of 4 so that none of the checks align with the x or y axes, this helps prevent bias
     var prev_radius = 0f;
-    for (var radius = 1f; radius < f32(max(dims.x, dims.y)); radius *= 1.25) {
+    for (var radius = 1f; radius < f32(max(dims.x, dims.y)); radius *= 1.5) {
         // get multiplier based on step size, each pixel checked counts for the square of pixels around it
         let multiplier = PI * (f32(radius) * f32(radius) - f32(prev_radius) * f32(prev_radius)) / f32(checks_per_ring);
 
         for (var i=0u; i<checks_per_ring; i++) {
-            let angle = (2 * PI) * (f32(i) / f32(checks_per_ring));
+            let angle = (2 * PI) * ((f32(i) + 0.5f) / f32(checks_per_ring)); // +0.5 is to reduce allignment with x and y axes
             let offset = vec2f(cos(angle), sin(angle)) * f32(radius);
 
             // TODO: could probably do some mins and select stuff to make other_pos be a vec2u

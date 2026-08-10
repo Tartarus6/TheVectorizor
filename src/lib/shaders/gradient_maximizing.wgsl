@@ -184,32 +184,30 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
 }
 
 fn get_subpixel_offset(grad_pixel: vec4f, texel: vec2u, dims: vec2u) -> f32 {
-	let neighbor_checks: u32 = 2; // number of neighbor checks in each direction (so value of 2 would mean checking 4 neighbors + 1 for the pixel itsself)
-	let neighbor_check_distance: f32 = 1.5;
     let theta = grad_pixel.y;
 
-    var weighted_offset_sum = 0f; // sum of pixel offsets in direction of gradient weighted by that pixel's gradient magnitude
-    var weights_sum = 0f;         // sum of the gradient magnitudes (for normalizing)
+    let step_offset = vec2f(cos(theta), sin(theta)); // unit gradient direction (edge normal)
 
-    for (var mult: i32 = -i32(neighbor_checks); mult <= i32(neighbor_checks); mult += 1) {
-    	let offset_magnitude = f32(mult) * neighbor_check_distance / f32(neighbor_checks);
-        let neighbor_offset = vec2f(cos(theta), sin(theta)) * offset_magnitude;
-        let neighbor_pos_uv = (vec2f(texel) + neighbor_offset) / vec2f(dims);
+    let center = vec2f(texel) + vec2f(0.5, 0.5);
+    let minus_uv = (center - step_offset) / vec2f(dims);
+    let plus_uv = (center + step_offset) / vec2f(dims);
 
-        let neighbor_pix = textureSampleLevel(grad_tex, grad_sampler, neighbor_pos_uv, 0.0);
-        let neighbor_grad_mag = neighbor_pix.x;
+    let center_grad_mag = grad_pixel.x; // already sampled at the pixel center upstream
+    let minus_grad_mag = textureSampleLevel(grad_tex, grad_sampler, minus_uv, 0.0).x;
+    let plus_grad_mag = textureSampleLevel(grad_tex, grad_sampler, plus_uv, 0.0).x;
 
-        // TODO: figure out how to weight it so that neighbors who's gradient alligns better are weighted higher than missaligned neighbors
-        let weight = neighbor_grad_mag;
+    let denom = minus_grad_mag - 2f * center_grad_mag + plus_grad_mag;
 
-        weighted_offset_sum += offset_magnitude * weight;
-        weights_sum += weight;
+    // handle divide by zero
+    if (abs(denom) < 1e-6) {
+        return 0f;
     }
 
-    let subpixel_offset = weighted_offset_sum / weights_sum;
+    let subpixel_offset = 0.5f * (minus_grad_mag - plus_grad_mag) / denom;
 
-    // return 0;
-    return subpixel_offset;
+    // Guaranteed within [-0.5, 0.5] for a true local maximum; clamp defends
+    // against noise / saddle cases where m0 is not strictly the peak.
+    return clamp(subpixel_offset, -0.5f, 0.5f);
 }
 
 fn get_section(theta: f32, section_count: u32) -> u32 {
