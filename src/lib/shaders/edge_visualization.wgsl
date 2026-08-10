@@ -12,8 +12,8 @@ struct VsOut {
 edge_tex (rgba16uint):
 	x → edge flag        (whether this pixel is part of an edge)
 	y → packed neighbors (bitmask to say which of the 8 neighbor pixels are connected edge pixels)
-	z → edge_id          (unique edge id, corresponds to the starting index of the pixel's connections)
-	w → 0                (unused)
+	z → edge_id low      (low 16 bits of the unique edge id / starting connection index)
+	w → edge_id high     (high 16 bits of the edge id; full id = z | (w << 16))
 */
 
 @vertex
@@ -63,7 +63,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     let edge_pix = textureLoad(edge_tex, texel, 0);
     let edge_flag = edge_pix.x;
     let packed_connections = edge_pix.y;
-    let edge_id = edge_pix.z;
+    // edge_id is split across z (low 16 bits) and w (high 16 bits) to hold a full u32
+    let edge_id = edge_pix.z | (edge_pix.w << 16u);
 
     if (edge_flag == 0u) {
         return vec4f(0.0, 0.0, 0.0, 1.0);

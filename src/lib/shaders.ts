@@ -96,7 +96,16 @@ So then i tried removing some of the squared i added in the gap. Which moved the
 
 This seems to indicate that, once a certain number of connections is present, the face tracing breaks somehow.
 
-Why? No clue!
+## Cause (fixed)
+The edge_id / base connection index was stored in the z channel of the rgba16uint edge texture,
+which only holds 0..65535. Once the global connection counter (assigned in raster order in
+reciprocating_neighbors.wgsl) crossed 65536, every subsequent pixel's base index was truncated to
+its low 16 bits and collided with slots already owned by earlier pixels. That corrupted the face
+graph below that scanline (everything merged into one face), producing the hard horizontal cutoff.
+More detail anywhere made the counter reach 65536 sooner, moving the line up.
+
+Fix: the edge_id is now split across z (low 16 bits) and w (high 16 bits), reconstructed as
+`z | (w << 16)` wherever it's read (face_trace_init, edge_visualization, face_svg.ts).
 */
 
 // TODO: move this const somewhere better
