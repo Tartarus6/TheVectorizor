@@ -1,9 +1,30 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
+/* shared theme: change these to retheme the whole app */
+@theme {
+	--color-accent: var(--color-cyan-400);
+	--color-accent-focus: var(--color-cyan-200);
+
+	--color-accent-alt: var(--color-green-400);
+	--color-accent-alt-focus: var(--color-green-200);
+
+	--color-alt: var(--color-red-400);
+	--color-alt-focus: var(--color-red-200);
+
+	--color-background: var(--color-slate-800);
+
+	--border-width: 2px;
+}
+
+@utility btn {
+	width: 100%;
+	padding: --spacing(2);
+}
+
 body {
-	background: var(--color-slate-800);
-	color: white;
+	background: var(--color-background);
+	color: var(--color-accent);
 }
 h1 {
 	font-size: 2.5em;

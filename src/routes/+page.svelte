@@ -3,36 +3,40 @@
 	import { run_shader } from '$lib/shaders';
 	import { optimize } from 'svgo/browser';
 	import JSZip from 'jszip';
+	import InputNumber from '$lib/components/InputNumber.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import type { Job } from '$lib/types';
+	import JobDisplay from '$lib/components/JobDisplay.svelte';
 
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
 	// TODO: add ability to re-vectorize after changing settings or whatever
+	// TODO: retry, cancel, and download buttons on each job
 
-	type Job = {
-		file: File;
-		image?: ImageBitmap;
-		svgBlob?: Blob;
-		status: 'pending' | 'processing' | 'done' | 'error';
-		eMessage?: string;
-	};
+	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
+	// TODO: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
+	// TODO: (style) make restore icon stroke width match the 2px standard on the rest of the page
+	// TODO: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
 
 	let jobs = $state<Job[]>([]);
 	let working = $state(false);
-	let showError = $state(false);
 
 	// Derived state for UI
 	let pendingJobs = $derived(jobs.filter((j) => j.status === 'pending'));
 	let doneJobs = $derived(jobs.filter((j) => j.status === 'done'));
 	let hasPending = $derived(pendingJobs.length > 0);
 	let hasDone = $derived(doneJobs.length > 0);
-	let canSubmit = $derived(hasPending && !working);
-	let canDownload = $derived(hasDone && !working);
+	let can_submit = $derived(hasPending && !working);
+	let can_download = $derived(hasDone && !working);
 
 	let svgUrl: string | undefined = $state(); // just for visualizing
 
-	let base_bandwidth = $state(0.05);
-	let num_cluster_passes = $state(5);
-	let num_edge_trace_passes = $state(300);
-	let blur_radius = $state(1);
+	// variables
+	let base_bandwidth: number | undefined = $state();
+	let num_cluster_passes: number | undefined = $state();
+	let num_edge_trace_passes: number | undefined = $state();
+	let blur_radius: number | undefined = $state();
+
+	// canvases
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let blurred_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
@@ -85,6 +89,11 @@
 	async function processJob(job: Job) {
 		try {
 			job.status = 'processing';
+
+			// make sure variables are defined
+			if (!base_bandwidth || !blur_radius || !num_cluster_passes || !num_edge_trace_passes) {
+				throw new Error("Variables aren't defined");
+			}
 
 			// check if file is of vector type
 			if (/svg|ai|esl/.test(job.file.type)) {
@@ -166,7 +175,7 @@
 		working = false;
 	}
 
-	async function downloadAll() {
+	async function download_all() {
 		if (!hasDone || working) return;
 
 		const completed = jobs.filter((j) => j.status === 'done');
@@ -209,80 +218,23 @@
 <h1 class="text-center">The Vectorizor</h1>
 
 <div class="flex w-128 flex-col gap-2 p-2">
-	<div class="flex flex-col bg-slate-500 p-2">
-		<div class="flex flex-row gap-2">
-			<span>Base Bandwidth:</span>
-			<input
-				type="number"
-				bind:value={base_bandwidth}
-				min={0}
-				max={1}
-				step={0.0001}
-				class="min-w-20 border-2 border-white"
-			/>
-		</div>
-		<input type="range" bind:value={base_bandwidth} min={0} max={1} step={0.0001} />
-	</div>
+	<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05}></InputNumber>
+	<InputNumber label="Blur Radius" bind:variable={blur_radius} min={1} max={10} step={1} default_value={1}></InputNumber>
+	<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5}></InputNumber>
+	<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300}></InputNumber>
 
-	<div class="flex flex-col bg-slate-500 p-2">
-		<div class="flex flex-row gap-2">
-			<span>Blur Radius:</span>
-			<input
-				type="number"
-				bind:value={blur_radius}
-				min={1}
-				max={10}
-				step={1}
-				class="border-2 border-white"
-			/>
-		</div>
-		<input type="range" bind:value={blur_radius} min={1} max={10} step={1} />
-	</div>
+	<Button onmousedownHandler={on_shader_run} disabled={!can_submit} label="Vectorize"></Button>
+	<Button onmousedownHandler={download_all} disabled={!can_download} label="Download SVG"></Button>
 
-	<div class="flex flex-col bg-slate-500 p-2">
-		<span>Cluster Passes: {num_cluster_passes}</span>
-		<input type="range" bind:value={num_cluster_passes} min={1} max={20} />
-	</div>
-
-	<div class="flex flex-col bg-slate-500 p-2">
-		<div class="flex flex-row gap-2">
-			<span>Edge Tracing Passes:</span>
-			<input
-				type="number"
-				bind:value={num_edge_trace_passes}
-				min={0}
-				max={10000}
-				step={1}
-				class="border-2 border-white"
-			/>
-		</div>
-		<input type="range" bind:value={num_edge_trace_passes} min={0} max={10000} step={1} />
-	</div>
-
-	<button
-		onmousedown={on_shader_run}
-		disabled={!canSubmit}
-		class="w-full {!canSubmit ? 'bg-gray-500' : 'cursor-pointer bg-purple-500'} p-2"
-	>
-		<span>vectorize</span>
-	</button>
-
-	<button
-		onmousedown={downloadAll}
-		disabled={!canDownload}
-		class="w-full {!canDownload ? 'bg-gray-500' : 'cursor-pointer bg-green-500'} p-2"
-	>
-		<span>download svg</span>
-	</button>
 	<div
-		class="relative flex flex-col items-center gap-2 rounded border-2 border-dashed border-slate-400 bg-slate-500 p-4 hover:border-slate-300"
+		class="add-images relative flex flex-col items-center gap-2 p-4 hover:border-slate-300"
 	>
-		<div class="font-semibold">Add Images</div>
-
-		<div class="text-sm">Click or drag images here</div>
-		<div class="text-sm">or paste anywhere</div>
-
-		<div class="text-xs">Multiple images supported</div>
+		<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-accent border-dashed">
+			<span class="font-semibold">Add Images</span>
+			<span class="text-sm">Click or drag images here</span>
+			<span class="text-sm">or paste anywhere</span>
+			<span class="text-xs">Multiple images supported</span>
+		</div>
 
 		<input
 			type="file"
@@ -292,31 +244,17 @@
 			class="absolute inset-0 cursor-pointer opacity-0"
 		/>
 	</div>
-	<div class="flex w-fit flex-col gap-2 bg-slate-600 p-2">
-		<span class="text-2xl">Jobs:</span>
-		<hr />
-		{#if jobs.length == 0}
-			<span>No submitted jobs...</span>
-		{/if}
-		{#each jobs as job (job.file)}
-			<div
-				class="flex flex-row gap-2 {job.status == 'done' ? 'bg-green-700' : ''} {job.status == 'processing'
-					? 'bg-yellow-700'
-					: ''} {job.status == 'pending' ? 'bg-gray-700' : ''} {job.status == 'error'
-					? 'bg-red-700'
-					: ''}"
-			>
-				<span>
-					{job.file.name} - {job.status}
-				</span>
-				{#if job.status === 'error'}
-					<button class="bg-red-500 float-right w-6" onclick={() => (showError = !showError)}>></button>
-					{#if showError}
-						<span>{job.eMessage}</span>
-					{/if}
-				{/if}
-			</div>
-		{/each}
+	<div class="flex w-fit flex-col border-2 border-accent">
+		<span class="text-2xl self-center p-1">Jobs</span>
+
+		<div class="p-2 border-t-2 border-accent flex flex-col gap-2">
+			{#if jobs.length == 0}
+				<span class="text-alt">No submitted jobs...</span>
+			{/if}
+			{#each jobs as job (job.file)}
+				<JobDisplay job={job}></JobDisplay>
+			{/each}
+		</div>
 	</div>
 </div>
 <div class="checker flex w-fit flex-col gap-2">
@@ -344,5 +282,20 @@
 		background-repeat: repeat;
 		background-size: var(--size) var(--size);
 		background-position: top left;
+	}
+
+	.add-images {
+		/* TODO: this is copied from Button.svelte. It'd be best to remove this duplication to prevent potential implementation desyncs */
+		background: repeating-linear-gradient(
+			45deg,
+			transparent,
+			transparent 4px,
+			var(--color-accent) 4px,
+			var(--color-accent) 6px
+		);
+
+		border-width: var(--border-width);
+		border-style: solid;
+		border-color: var(--color-accent);
 	}
 </style>

@@ -1,7 +1,8 @@
 /*
  ? This code is mostly LLM-written, and is just for testing. it will not be the final thing.
  ? The final code will probably be written for WASM so that it can be a lot faster.
- * What this file does is take in specially formatted textures, and turn them into an SVG.
+ * What this file does is take in specially formatted textures (the outputs from the multiple
+ * shader processes), and turn them into an SVG.
 */
 
 type EdgePoint = {
