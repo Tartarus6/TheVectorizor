@@ -214,9 +214,9 @@
 	// Requeue a job; it runs on the next "Vectorize" so current settings are used
 	function retry_job(job: Job) {
 		if (job.status === 'processing') return;
+		job.status = 'pending';
 		job.svg_blob = undefined;
 		job.error_message = undefined;
-		job.status = 'pending';
 	}
 
 	function delete_job(job: Job) {
@@ -244,8 +244,8 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-2 items-start w-full max-w-192 lg:max-w-384 mx-auto gap-16 p-2 px-8">
 	<section class="flex flex-col gap-2">
-		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent-alt border-2 border-current">
-			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-accent-alt">
+		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent border-2 border-current">
+			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-current">
 				<span class="font-semibold">Add Images</span>
 				<span>Click or drag images here</span>
 				<span>or paste anywhere</span>
@@ -261,8 +261,8 @@
 			/>
 		</div>
 
-		<Button onmousedown_handler={on_shader_run} disabled={!can_submit} label="Vectorize"></Button>
-		<Button onmousedown_handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'}></Button>
+		<Button onmousedown_handler={on_shader_run} disabled={!can_submit} label="Vectorize" alt={false}></Button>
+		<Button onmousedown_handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
 
 
 		<div class="flex flex-col border-2 border-accent">
@@ -282,7 +282,7 @@
 		<div class="flex flex-col border-2 border-accent">
 			<span class="text-accent self-center p-1">Debug:</span>
 			<div class="flex flex-col gap-2 p-2 border-t-2 border-accent">
-				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}}></Button>
+				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
 
 				<div class="contents {show_debug ? '' : 'hidden'}">
 					{#if svgUrl}

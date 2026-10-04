@@ -32,9 +32,6 @@
 				<button class="size-6 text-accent border-2 border-current text-center" onclick={() => (show_error = !show_error)}>
 					<InfoIcon></InfoIcon>
 				</button>
-				<button class="size-6 text-accent border-2 border-current text-center" onclick={() => props.onretry(props.job)}>
-					<RetryIcon></RetryIcon>
-				</button>
 			{:else if props.job.status === 'done'}
 				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => props.ondownload(props.job)}>
 					<DownloadIcon></DownloadIcon>
