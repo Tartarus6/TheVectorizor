@@ -37,11 +37,9 @@
 	let base_bandwidth: number | undefined = $state();
 	let num_cluster_passes: number | undefined = $state();
 	let num_edge_trace_passes: number | undefined = $state();
-	let blur_radius: number | undefined = $state();
 
 	// canvases
 	let image_canvas: HTMLCanvasElement | undefined = $state();
-	let blurred_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
@@ -94,7 +92,7 @@
 			job.status = 'processing';
 
 			// make sure variables are defined
-			if (!base_bandwidth || !blur_radius || !num_cluster_passes || !num_edge_trace_passes) {
+			if (!base_bandwidth || !num_cluster_passes || !num_edge_trace_passes) {
 				throw new Error("Variables aren't defined");
 			}
 
@@ -105,7 +103,7 @@
 			const bitmap = await createImageBitmap(job.file);
 
 			// Set up canvases for this job
-			if (!image_canvas || !blurred_canvas || !clustered_canvas || !edge_canvas) {
+			if (!image_canvas || !clustered_canvas || !edge_canvas) {
 				throw new Error('Canvas elements missing');
 			}
 
@@ -113,28 +111,23 @@
 			image_canvas.height = bitmap.height;
 			image_canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
 
-			blurred_canvas.width = bitmap.width;
-			blurred_canvas.height = bitmap.height;
 			clustered_canvas.width = bitmap.width;
 			clustered_canvas.height = bitmap.height;
 			edge_canvas.width = bitmap.width;
 			edge_canvas.height = bitmap.height;
 
-			const blurred_ctx = blurred_canvas.getContext('webgpu');
 			const clustered_ctx = clustered_canvas.getContext('webgpu');
 			const edge_ctx = edge_canvas.getContext('webgpu');
-			if (!blurred_ctx || !clustered_ctx || !edge_ctx) {
+			if (!clustered_ctx || !edge_ctx) {
 				throw new Error('WebGPU context not available');
 			}
 
 			let start_time = performance.now();
 			const [success, svg] = await run_shader(
-				blurred_ctx,
 				clustered_ctx,
 				edge_ctx,
 				bitmap,
 				base_bandwidth,
-				blur_radius,
 				num_cluster_passes,
 				num_edge_trace_passes
 			);
@@ -290,7 +283,6 @@
 					{/if}
 					<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
 					<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
-					<canvas bind:this={blurred_canvas} style="image-rendering: pixelated;"></canvas>
 					<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
 				</div>
 			</div>
@@ -299,7 +291,6 @@
 
 	<section class="flex flex-col gap-2">
 		<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05}></InputNumber>
-		<InputNumber label="Blur Radius" bind:variable={blur_radius} min={1} max={10} step={1} default_value={1}></InputNumber>
 		<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5}></InputNumber>
 		<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300}></InputNumber>
 	</section>

@@ -3,7 +3,6 @@ import update_density_scores_shader from '$lib/shaders/update_density_scores.wgs
 import calculate_mean_step_shader from '$lib/shaders/calculate_mean_step.wgsl?raw';
 import srgb_to_oklab_shader from '$lib/shaders/srgb_to_oklab.wgsl?raw';
 import oklab_to_srgb_shader from '$lib/shaders/oklab_to_srgb.wgsl?raw';
-import gaussian_blur_shader from '$lib/shaders/gaussian_blur.wgsl?raw';
 import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
@@ -124,7 +123,6 @@ type SharedTextures = {
 	inputSrgb: GPUTexture;
 	oklabPing: GPUTexture;
 	oklabPong: GPUTexture;
-	gaussianBlurIntermediate: GPUTexture;
 	gradientPing: GPUTexture;
 	gradientPong: GPUTexture;
 	edgePing: GPUTexture;
@@ -152,8 +150,6 @@ type Pipelines = {
 	updateDensityScores: GPUComputePipeline;
 	meanDensityScore: GPUComputePipeline;
 	meanShiftCluster: GPUComputePipeline;
-	gaussianBlurH: GPURenderPipeline;
-	gaussianBlurV: GPURenderPipeline;
 	gaussianGradient: GPURenderPipeline;
 	gradientMax: GPUComputePipeline;
 	edgeTrace: GPUComputePipeline;
@@ -164,12 +160,10 @@ type Pipelines = {
 };
 
 export async function run_shader(
-	blurCanvas: GPUCanvasContext,
 	clusterCanvas: GPUCanvasContext,
 	edgeCanvas: GPUCanvasContext,
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
-	blur_radius: number,
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
 ): Promise<[boolean, string]> {
@@ -208,23 +202,10 @@ export async function run_shader(
 		textures.oklabPing
 	);
 
-	// --- Blur ---
-	await gaussianBlurPass(
-		device,
-		{ gaussianBlurH: pipelines.gaussianBlurH, gaussianBlurV: pipelines.gaussianBlurV },
-		textures.gaussianBlurIntermediate,
-		blur_radius,
-		textures.oklabPing,
-		textures.oklabPong
-	);
-
-	// -- OkLab → Srgb (blur visualization)
-	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, blurCanvas);
-
 	// --- Mean Shift Cluster Steps ---
 	for (let pass_index = 0; pass_index < num_cluster_passes; pass_index++) {
-		const clusterInput = (pass_index + 1) % 2 === 1 ? textures.oklabPong : textures.oklabPing;
-		const clusterOutput = (pass_index + 1) % 2 === 1 ? textures.oklabPing : textures.oklabPong;
+		const clusterInput = (pass_index + 1) % 2 === 1 ? textures.oklabPing : textures.oklabPong;
+		const clusterOutput = (pass_index + 1) % 2 === 1 ? textures.oklabPong : textures.oklabPing;
 
 		await densityScoresPass(
 			device,
@@ -254,23 +235,26 @@ export async function run_shader(
 		);
 	}
 
+	const grad_tex_a = num_cluster_passes % 2 === 0 ? textures.oklabPong : textures.oklabPing;
+	const grad_tex_b = num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong
+
 	// -- OkLab → Srgb (cluster visualization)
-	await oklabToSrgbPass(device, pipelines.oklabToSrgb, textures.oklabPong, false, clusterCanvas);
+	await oklabToSrgbPass(device, pipelines.oklabToSrgb, grad_tex_a, false, clusterCanvas);
 
 	// --- Gaussian Gradient ---
 	await gaussianGradientPass(
 		device,
 		pipelines.gaussianGradient,
-		num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
-		textures.gradientPing
+		grad_tex_a,
+		grad_tex_b
 	);
 
 	// --- Gradient Maximizing (Edge Seeding) ---
 	await gradientMaxPass(
 		device,
 		pipelines.gradientMax,
-		textures.gradientPing,
-		textures.gradientPong,
+		grad_tex_b,
+		grad_tex_a,
 		textures.edgePing,
 		gradientMaxSampler,
 		size
@@ -289,7 +273,7 @@ export async function run_shader(
 		await edgeTracePass(
 			device,
 			pipelines.edgeTrace,
-			textures.gradientPong,
+			grad_tex_a,
 			final_edge_texture,
 			outputTexture,
 			size
@@ -367,22 +351,13 @@ export async function run_shader(
 	// --- Svg Creation ---
 	const svg = await faceBuffersToSvg(
 		device,
-		textures.gradientPong,
+		grad_tex_a,
 		final_edge_texture,
 		finalConnectionData,
 		size.width,
 		size.height,
 		connectionCountNumber
 	);
-
-	// // -- OkLab → Srgb (just for visualization)
-	// await oklabToSrgbPass(
-	// 	device,
-	// 	pipelines.oklabToSrgb,
-	// 	num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong,
-	// 	false,
-	// 	clusterCanvas
-	// );
 
 	return [true, svg];
 }
@@ -431,13 +406,6 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 			GPUTextureUsage.STORAGE_BINDING |
 			GPUTextureUsage.COPY_SRC |
 			GPUTextureUsage.COPY_DST
-	});
-
-	const gaussianBlurIntermediate = device.createTexture({
-		label: 'gaussian blur intermediate texture',
-		size: [size.width, size.height],
-		format: 'rgba16float',
-		usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT
 	});
 
 	/*
@@ -510,7 +478,6 @@ function createSharedTextures(device: GPUDevice, size: ImageSize): SharedTexture
 		inputSrgb,
 		oklabPing,
 		oklabPong,
-		gaussianBlurIntermediate,
 		gradientPing,
 		gradientPong,
 		edgePing,
@@ -689,45 +656,6 @@ function createPipelines(device: GPUDevice): Pipelines {
 		}
 	});
 
-	const gaussianBlurModule = device.createShaderModule({
-		label: 'gaussian blur module',
-		code: gaussian_blur_shader
-	});
-	const gaussianBlurH = device.createRenderPipeline({
-		label: 'gaussian blur horizontal pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gaussianBlurModule
-		},
-		fragment: {
-			entryPoint: 'blur_horizontal',
-			module: gaussianBlurModule,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-	const gaussianBlurV = device.createRenderPipeline({
-		label: 'gaussian blur vertical pipeline',
-		layout: 'auto',
-		vertex: {
-			entryPoint: 'vs_main',
-			module: gaussianBlurModule
-		},
-		fragment: {
-			entryPoint: 'blur_vertical',
-			module: gaussianBlurModule,
-			targets: [
-				{
-					format: 'rgba16float'
-				}
-			]
-		}
-	});
-
 	const gaussianGradientModule = device.createShaderModule({
 		label: 'gaussian gradient module',
 		code: gaussian_gradient_shader
@@ -843,8 +771,6 @@ function createPipelines(device: GPUDevice): Pipelines {
 		updateDensityScores,
 		meanDensityScore,
 		meanShiftCluster,
-		gaussianBlurH,
-		gaussianBlurV,
 		gaussianGradient,
 		gradientMax,
 		edgeTrace,
@@ -1140,87 +1066,6 @@ async function meanShiftClusterPass(
 	device.queue.submit([encoder.finish()]);
 }
 
-async function gaussianBlurPass(
-	device: GPUDevice,
-	pipelines: Pick<Pipelines, 'gaussianBlurH' | 'gaussianBlurV'>,
-	gaussianBlurIntermediateTexture: GPUTexture,
-	radius: number,
-	inputTexture: GPUTexture,
-	outputTexture: GPUTexture
-): Promise<void> {
-	const uniformsData = new Uint32Array([radius]);
-	const uniformsBuffer = device.createBuffer({
-		label: 'gaussian blur uniforms buffer',
-		size: uniformsData.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-	device.queue.writeBuffer(uniformsBuffer, 0, uniformsData);
-
-	const kernelWeights = compute_gaussian_kernel(radius);
-	const kernelBuffer = device.createBuffer({
-		label: 'gaussian blur kernel weights buffer',
-		size: kernelWeights.byteLength,
-		usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-	});
-	device.queue.writeBuffer(kernelBuffer, 0, kernelWeights);
-
-	const hBindGroup = device.createBindGroup({
-		label: 'gaussian blur horizontal bind group',
-		layout: pipelines.gaussianBlurH.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: { buffer: uniformsBuffer } },
-			{ binding: 1, resource: inputTexture.createView() },
-			{ binding: 2, resource: { buffer: kernelBuffer } }
-		]
-	});
-
-	const vBindGroup = device.createBindGroup({
-		label: 'gaussian blur vertical bind group',
-		layout: pipelines.gaussianBlurV.getBindGroupLayout(0),
-		entries: [
-			{ binding: 0, resource: { buffer: uniformsBuffer } },
-			{ binding: 1, resource: gaussianBlurIntermediateTexture.createView() },
-			{ binding: 2, resource: { buffer: kernelBuffer } }
-		]
-	});
-
-	const hEncoder = device.createCommandEncoder({ label: 'gaussian blur horizontal encoder' });
-	const hPass = hEncoder.beginRenderPass({
-		label: 'gaussian blur horizontal render pass',
-		colorAttachments: [
-			{
-				view: gaussianBlurIntermediateTexture.createView(),
-				clearValue: [0, 0, 0, 0],
-				loadOp: 'clear',
-				storeOp: 'store'
-			}
-		]
-	});
-	hPass.setPipeline(pipelines.gaussianBlurH);
-	hPass.setBindGroup(0, hBindGroup);
-	hPass.draw(3);
-	hPass.end();
-	device.queue.submit([hEncoder.finish()]);
-
-	const vEncoder = device.createCommandEncoder({ label: 'gaussian blur vertical encoder' });
-	const vPass = vEncoder.beginRenderPass({
-		label: 'gaussian blur vertical render pass',
-		colorAttachments: [
-			{
-				view: outputTexture.createView(),
-				clearValue: [0, 0, 0, 0],
-				loadOp: 'clear',
-				storeOp: 'store'
-			}
-		]
-	});
-	vPass.setPipeline(pipelines.gaussianBlurV);
-	vPass.setBindGroup(0, vBindGroup);
-	vPass.draw(3);
-	vPass.end();
-	device.queue.submit([vEncoder.finish()]);
-}
-
 async function gaussianGradientPass(
 	device: GPUDevice,
 	pipeline: GPURenderPipeline,
@@ -1474,22 +1319,6 @@ async function edgeVisualizationPass(
 	pass.end();
 
 	device.queue.submit([encoder.finish()]);
-}
-
-/// returns whether the colors changed (used to know whether to increase count)
-function compute_gaussian_kernel(radius: number): Float32Array {
-	const sigma = radius / 3.0;
-	const weights = new Float32Array(radius + 1);
-
-	for (let i = 0; i <= radius; i++) {
-		weights[i] = Math.exp(-(i * i) / (2 * sigma * sigma));
-	}
-
-	let sum = weights[0];
-	for (let i = 1; i <= radius; i++) sum += 2 * weights[i];
-	for (let i = 0; i <= radius; i++) weights[i] /= sum;
-
-	return weights;
 }
 
 /// Function for reading back a buffer with a single U32 value in it
