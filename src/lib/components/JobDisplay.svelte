@@ -2,6 +2,7 @@
 	import type { Job } from "$lib/types";
 	import DownloadIcon from "./icons/DownloadIcon.svelte";
 	import InfoIcon from "./icons/InfoIcon.svelte";
+	import RetryIcon from "./icons/RetryIcon.svelte";
 	import XIcon from "./icons/XIcon.svelte";
 
 	interface Props {
@@ -31,6 +32,9 @@
 			{:else if props.job.status === 'done'}
 				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => (console.log("TODO: download job"))}>
 					<DownloadIcon></DownloadIcon>
+				</button>
+				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => (console.log("TODO: retry job"))}>
+					<RetryIcon></RetryIcon>
 				</button>
 			{/if}
 			<button class="size-6 text-alt border-2 border-current text-center" onclick={() => (console.log("TODO: delete job"))}>
