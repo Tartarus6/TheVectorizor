@@ -15,8 +15,8 @@
 
 	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
 	// TODO: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
-	// TODO: (style) make restore icon stroke width match the 2px standard on the rest of the page
 	// TODO: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
+	// TODO: (style) apply a tiny round to EVERYTHING to better the circular shape a CRT beam lights up
 
 	let jobs = $state<Job[]>([]);
 	let working: boolean = $state(false);
@@ -218,65 +218,72 @@
 	}
 </script>
 
-<h1 class="text-center">The Vectorizor</h1>
+<div class="w-full flex flex-col pb-8 place-items-center">
+	<span>The Vectorizor</span>
+	<span>Vectorize your images entirely localy, with the power of WebGPU!</span>
+</div>
 
-<div class="flex flex-col w-full max-w-128 mx-auto gap-2 p-2">
-	<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05}></InputNumber>
-	<InputNumber label="Blur Radius" bind:variable={blur_radius} min={1} max={10} step={1} default_value={1}></InputNumber>
-	<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5}></InputNumber>
-	<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300}></InputNumber>
+<div class="grid grid-cols-1 lg:grid-cols-2 items-start w-full max-w-192 lg:max-w-384 mx-auto gap-16 p-2 px-8">
+	<section class="flex flex-col gap-2">
+		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent-alt border-2 border-current">
+			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-accent-alt">
+				<span class="font-semibold">Add Images</span>
+				<span>Click or drag images here</span>
+				<span>or paste anywhere</span>
+				<span>Multiple images supported</span>
+			</div>
 
-	<div class="add-images relative flex flex-col items-center gap-2 p-4 text-accent-alt">
-		<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-accent-alt border-dashed">
-			<span class="font-semibold">Add Images</span>
-			<span class="text-sm">Click or drag images here</span>
-			<span class="text-sm">or paste anywhere</span>
-			<span class="text-xs">Multiple images supported</span>
+			<input
+				type="file"
+				accept="image/*"
+				multiple
+				onchange={on_files_selected}
+				class="absolute inset-0 cursor-pointer opacity-0"
+			/>
 		</div>
 
-		<input
-			type="file"
-			accept="image/*"
-			multiple
-			onchange={on_files_selected}
-			class="absolute inset-0 cursor-pointer opacity-0"
-		/>
-	</div>
-
-	<Button onmousedown_handler={on_shader_run} disabled={!can_submit} label="Vectorize"></Button>
-	<Button onmousedown_handler={download_all} disabled={!can_download} label="Download SVG"></Button>
+		<Button onmousedown_handler={on_shader_run} disabled={!can_submit} label="Vectorize"></Button>
+		<Button onmousedown_handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'}></Button>
 
 
-	<div class="flex flex-col border-2 border-accent">
-		<span class="text-2xl self-center p-1">Jobs</span>
+		<div class="flex flex-col border-2 border-accent">
+			<span class="self-center p-1">Jobs</span>
 
-		<div class="p-2 border-t-2 border-accent flex flex-col gap-2">
-			{#if jobs.length == 0}
-				<span class="text-alt">No submitted jobs...</span>
-			{/if}
-			{#each jobs as job (job.file)}
-				<JobDisplay job={job}></JobDisplay>
-			{/each}
-		</div>
-	</div>
-
-
-	<div class="flex flex-col gap-2 border-2 border-accent">
-		<span class="text-accent text-2xl self-center p-2">Debug:</span>
-		<div class="flex flex-col gap-2 p-2 border-t-2 border-accent">
-			<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}}></Button>
-
-			<div class="contents {show_debug ? '' : 'hidden'}">
-				{#if svgUrl}
-					<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
+			<div class="p-2 border-t-2 border-accent flex flex-col gap-2">
+				{#if jobs.length == 0}
+					<span class="text-alt">No submitted jobs...</span>
 				{/if}
-				<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
-				<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
-				<canvas bind:this={blurred_canvas} style="image-rendering: pixelated;"></canvas>
-				<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+				{#each jobs as job (job.file)}
+					<JobDisplay job={job}></JobDisplay>
+				{/each}
 			</div>
 		</div>
-	</div>
+
+
+		<div class="flex flex-col border-2 border-accent">
+			<span class="text-accent self-center p-1">Debug:</span>
+			<div class="flex flex-col gap-2 p-2 border-t-2 border-accent">
+				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}}></Button>
+
+				<div class="contents {show_debug ? '' : 'hidden'}">
+					{#if svgUrl}
+						<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
+					{/if}
+					<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
+					<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
+					<canvas bind:this={blurred_canvas} style="image-rendering: pixelated;"></canvas>
+					<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+				</div>
+			</div>
+		</div>
+	</section>
+
+	<section class="flex flex-col gap-2">
+		<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05}></InputNumber>
+		<InputNumber label="Blur Radius" bind:variable={blur_radius} min={1} max={10} step={1} default_value={1}></InputNumber>
+		<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5}></InputNumber>
+		<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300}></InputNumber>
+	</section>
 </div>
 
 <style>
@@ -294,20 +301,5 @@
 		background-repeat: repeat;
 		background-size: var(--size) var(--size);
 		background-position: top left;
-	}
-
-	.add-images {
-		/* TODO: this is copied from Button.svelte. It'd be best to remove this duplication to prevent potential implementation desyncs */
-		background: repeating-linear-gradient(
-			45deg,
-			transparent,
-			transparent 4px,
-			currentColor 4px,
-			currentColor 6px
-		);
-
-		border-width: var(--border-width);
-		border-style: solid;
-		border-color: currentColor;
 	}
 </style>

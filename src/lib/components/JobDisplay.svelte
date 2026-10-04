@@ -1,5 +1,8 @@
 <script lang="ts">
 	import type { Job } from "$lib/types";
+	import DownloadIcon from "./icons/DownloadIcon.svelte";
+	import InfoIcon from "./icons/InfoIcon.svelte";
+	import XIcon from "./icons/XIcon.svelte";
 
 	interface Props {
 		job: Job
@@ -16,19 +19,30 @@
 		{props.job.status == 'pending' ? 'border-accent border-dashed text-accent' : ''}
 		{props.job.status == 'error' ? 'border-alt text-alt' : ''}"
 >
-	<div class="flex flex-row gap-2">
-		<span>
-			{props.job.file.name} - {props.job.status}
+	<div class="grid grid-cols-[1fr_auto] grid-flow-col gap-2 items-center">
+		<span class="break-all">
+			{props.job.file.name}
 		</span>
-		{#if props.job.status === 'error'}
-			<button class="float-right size-6 cursor-pointer {show_error ? 'rotate-90' : ''}" onclick={() => (show_error = !show_error)}>></button>
-		{/if}
+		<div class="flex flex-row w-fit gap-1 m-1">
+			{#if props.job.status === 'error'}
+				<button class="size-6 text-accent border-2 border-current text-center" onclick={() => (show_error = !show_error)}>
+					<InfoIcon></InfoIcon>
+				</button>
+			{:else if props.job.status === 'done'}
+				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => (console.log("TODO: download job"))}>
+					<DownloadIcon></DownloadIcon>
+				</button>
+			{/if}
+			<button class="size-6 text-alt border-2 border-current text-center" onclick={() => (console.log("TODO: delete job"))}>
+				<XIcon></XIcon>
+			</button>
+		</div>
 	</div>
 
 	{#if props.job.status === 'error'}
 
 		{#if show_error}
-			<span class="border-t-2 border-alt">{props.job.eMessage}</span>
+			<span class="border-t-2 border-alt">{props.job.error_message}</span>
 		{/if}
 	{/if}
 </div>

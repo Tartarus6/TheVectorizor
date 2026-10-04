@@ -11,45 +11,9 @@
 <button
 	onmousedown={props.onmousedown_handler}
 	disabled={props.disabled}
-	class="btn"
+	class="filled border-2 border-current text-accent-alt focus-within:text-accent-alt-focus disabled:opacity-40 p-2"
 >
-	<span class="bg-background p-1 btn-text">
+	<span class="bg-background p-1 border-2 border-current">
 		{props.label}
 	</span>
 </button>
-
-<style>
-	.btn {
-		--btn-color: var(--color-accent-alt);
-		border: var(--border-width) solid var(--btn-color);
-
-		color: var(--color-accent-alt);
-
-		background: repeating-linear-gradient(
-			45deg,
-			transparent,
-			transparent 4px,
-			var(--btn-color) 4px,
-			var(--btn-color) 6px
-		);
-	}
-
-	.btn:focus-within {
-		--btn-color: var(--color-accent-alt-focus);
-	}
-
-	.btn:disabled {
-		/* change style to show button is disabled */
-		--btn-color: var(--color-alt);
-		color: var(--color-alt);
-	}
-
-	.btn:not(:disabled) {
-		/* change style to show button is enabled */
-		cursor: pointer;
-	}
-
-	.btn-text {
-		border: var(--border-width) solid var(--btn-color);
-	}
-</style>

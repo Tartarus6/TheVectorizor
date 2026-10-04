@@ -15,45 +15,45 @@
 	--color-background: var(--color-slate-800);
 
 	--border-width: 2px;
+
 }
 
-@utility btn {
+* {
+	border-radius: calc(var(--border-width));
+
+	font-family: "Google Sans Flex", sans-serif;
+	font-weight: 550;
+	font-optical-sizing: auto;
+	font-style: normal;
+	font-variation-settings:
+		"slnt" 0,
+		"wdth" 100,
+		"GRAD" 0,
+		"ROND" 100;
+}
+
+
+/* icon strokes stay at the page border width regardless of icon size */
+.preview-icon {
+	stroke-width: var(--border-width);
+
+	stroke-linecap: round;
+	stroke-linejoin: round;
+
 	width: 100%;
-	padding: --spacing(2);
+	height: 100%;
+}
+.preview-icon * {
+	vector-effect: non-scaling-stroke;
+}
+
+button:enabled {
+	cursor: pointer;
 }
 
 body {
 	background: var(--color-background);
 	color: var(--color-accent);
-}
-h1 {
-	font-size: 2.5em;
-	font-weight: bold;
-}
-
-h2 {
-	font-size: 2em;
-	font-weight: bold;
-}
-
-h3 {
-	font-size: 1.5em;
-	font-weight: bold;
-}
-
-h4 {
-	font-size: 1.2em;
-	font-weight: bold;
-}
-
-h5 {
-	font-size: 1em;
-	font-weight: bold;
-}
-
-h6 {
-	font-size: 0.9em;
-	font-weight: bold;
 }
 
 /* Fills in the element with a diagonal pattern of lines of the text color */
@@ -65,8 +65,4 @@ h6 {
 		currentColor 4px,
 		currentColor 6px
 	);
-
-	border-width: var(--border-width);
-	border-style: solid;
-	border-color: currentColor;
 }

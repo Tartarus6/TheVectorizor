@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import RestoreIcon from "./RestoreIcon.svelte";
+	import RestoreIcon from "$lib/components/icons/RestoreIcon.svelte";
 
 	interface Props {
 		label: string;
@@ -21,14 +21,14 @@
 <div class="flex flex-col border-2 border-accent p-2">
 	<div class="grid grid-cols-[auto_1fr] grid-rows-1 gap-2">
 		<span>{label}:</span>
-		<div class="grid grid-cols-[1fr_auto] w-full border-2 text-accent-alt border-accent-alt focus-within:border-accent-alt-focus">
+		<div class="px-1 grid grid-cols-[1fr_auto] w-full border-2 text-accent-alt border-accent-alt focus-within:border-accent-alt-focus">
 			<input
 				type="number"
 				bind:value={variable}
 				min={min}
 				max={max}
 				step={step}
-				class="h-fit w-full outline-0 pl-1.5"
+				class="h-fit w-full outline-0"
 			/>
 			<button class="size-5 self-center cursor-pointer text-accent-alt focus-within:text-alt-focus" onmousedown={() => {variable = default_value}}>
 				<RestoreIcon></RestoreIcon>
@@ -75,14 +75,13 @@
 	}
 
 	input[type='range']::-webkit-slider-runnable-track {
-		height: var(--track-height);
+		height: calc(var(--track-height) / 2);
 		background: var(--track-color);
-		/*border: var(--border);*/
 	}
 	input[type='range']::-moz-range-track {
-		height: var(--track-height);
+		height: calc(var(--track-height) / 2);
 		background: var(--track-color);
-		/*border: var(--border);*/
+		border-radius: var(--border-width);
 	}
 
 	input[type='range']::-webkit-slider-thumb {
@@ -91,7 +90,7 @@
 		height: var(--thumb-height);
 		background: var(--thumb-color);
 		border: var(--border);
-		border-radius: 0;
+		border-radius: var(--border-width);
 		/* center the thumb on the track (webkit doesn't do this automatically) */
 		margin-top: calc((var(--track-height) - var(--thumb-height)) / 2 - 2px);
 	}
@@ -100,7 +99,7 @@
 		height: var(--thumb-height);
 		background: var(--thumb-color);
 		border: var(--border);
-		border-radius: 0;
+		border-radius: var(--border-width);
 		box-sizing: border-box;
 	}
 </style>
