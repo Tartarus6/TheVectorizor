@@ -11,6 +11,7 @@
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
 	// TODO: add ability to re-vectorize after changing settings or whatever
 	// TODO: retry, cancel, and download buttons on each job
+	// TODO: (accessibility) make buttons work right with keyboard navigation
 
 	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
 	// TODO: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
@@ -18,15 +19,17 @@
 	// TODO: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
 
 	let jobs = $state<Job[]>([]);
-	let working = $state(false);
+	let working: boolean = $state(false);
+
+	let show_debug: boolean = $state(false);
 
 	// Derived state for UI
-	let pendingJobs = $derived(jobs.filter((j) => j.status === 'pending'));
-	let doneJobs = $derived(jobs.filter((j) => j.status === 'done'));
-	let hasPending = $derived(pendingJobs.length > 0);
-	let hasDone = $derived(doneJobs.length > 0);
-	let can_submit = $derived(hasPending && !working);
-	let can_download = $derived(hasDone && !working);
+	let pending_jobs = $derived(jobs.filter((j) => j.status === 'pending'));
+	let done_jobs = $derived(jobs.filter((j) => j.status === 'done'));
+	let has_pending = $derived(pending_jobs.length > 0);
+	let has_done = $derived(done_jobs.length > 0);
+	let can_submit = $derived(has_pending && !working);
+	let can_download = $derived(has_done && !working);
 
 	let svgUrl: string | undefined = $state(); // just for visualizing
 
@@ -49,7 +52,7 @@
 		return () => document.removeEventListener('paste', on_image_pasted);
 	});
 
-	function addFiles(files: File[]) {
+	function add_files(files: File[]) {
 		jobs.push(
 			...files.map(
 				(file): Job => ({
@@ -65,10 +68,10 @@
 
 		if (!file) return;
 
-		addFiles([file]);
+		add_files([file]);
 	}
 
-	function onFilesSelected(e: Event) {
+	function on_files_selected(e: Event) {
 		const files = Array.from((e.target as HTMLInputElement).files ?? []);
 
 		// blocking the svg as it get uploaded
@@ -82,11 +85,11 @@
 		// });
 		// addFiles(nonvector);
 
-		addFiles(files);
+		add_files(files);
 	}
 
 	// Helper: process a single job
-	async function processJob(job: Job) {
+	async function process_job(job: Job) {
 		try {
 			job.status = 'processing';
 
@@ -124,7 +127,7 @@
 				throw new Error('WebGPU context not available');
 			}
 
-			let startTime = performance.now();
+			let start_time = performance.now();
 			const [success, svg] = await run_shader(
 				blurred_ctx,
 				clustered_ctx,
@@ -135,39 +138,39 @@
 				num_cluster_passes,
 				num_edge_trace_passes
 			);
-			let endTime = performance.now();
-			console.log(`Shader execution time: ${(endTime - startTime).toFixed(2)}ms`);
+			let end_time = performance.now();
+			console.log(`Shader execution time: ${(end_time - start_time).toFixed(2)}ms`);
 
 			if (!success) throw new Error('Shader failed');
 
-			startTime = performance.now();
+			start_time = performance.now();
 			const { data: optimizedSvg } = optimize(svg);
-			endTime = performance.now();
-			console.log(`Optimize execution time: ${(endTime - startTime).toFixed(2)}ms`);
+			end_time = performance.now();
+			console.log(`Optimize execution time: ${(end_time - start_time).toFixed(2)}ms`);
 
-			job.svgBlob = new Blob([optimizedSvg], { type: 'image/svg+xml' });
+			job.svg_blob = new Blob([optimizedSvg], { type: 'image/svg+xml' });
 			job.status = 'done';
 
 			// Update preview (clean up old URL)
 			if (svgUrl) URL.revokeObjectURL(svgUrl);
-			svgUrl = URL.createObjectURL(job.svgBlob);
+			svgUrl = URL.createObjectURL(job.svg_blob);
 		} catch (err) {
 			console.error(err);
 			job.status = 'error';
 			const errMessage = err as Error;
-			job.eMessage = errMessage.message;
+			job.error_message = errMessage.message;
 		}
 	}
 
 	async function on_shader_run() {
-		if (!hasPending || working) return;
+		if (!has_pending || working) return;
 
 		working = true;
 		// Take a snapshot of only pending jobs at this moment
 		const pendingSnapshot = jobs.filter((j) => j.status === 'pending');
 
 		for (const job of pendingSnapshot) {
-			await processJob(job);
+			await process_job(job);
 			// Give UI a chance to update between jobs
 			await new Promise((resolve) => setTimeout(resolve, 0));
 		}
@@ -176,7 +179,7 @@
 	}
 
 	async function download_all() {
-		if (!hasDone || working) return;
+		if (!has_done || working) return;
 
 		const completed = jobs.filter((j) => j.status === 'done');
 		if (completed.length === 0) return;
@@ -184,16 +187,16 @@
 		// Single job: download as plain SVG
 		if (completed.length === 1) {
 			const job = completed[0];
-			if (!job.svgBlob) return;
+			if (!job.svg_blob) return;
 			const name = job.file.name.replace(/\.[^.]+$/, '') + '.svg';
-			downloadBlob(job.svgBlob, name);
+			downloadBlob(job.svg_blob, name);
 		} else {
 			// Multiple jobs: create zip
 			const zip = new JSZip();
 			for (const job of completed) {
-				if (!job.svgBlob) continue;
+				if (!job.svg_blob) continue;
 				const name = job.file.name.replace(/\.[^.]+$/, '') + '.svg';
-				zip.file(name, job.svgBlob);
+				zip.file(name, job.svg_blob);
 			}
 			const blob = await zip.generateAsync({ type: 'blob' });
 			downloadBlob(blob, 'vectorized-images.zip');
@@ -217,19 +220,14 @@
 
 <h1 class="text-center">The Vectorizor</h1>
 
-<div class="flex w-128 flex-col gap-2 p-2">
+<div class="flex flex-col w-full max-w-128 mx-auto gap-2 p-2">
 	<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05}></InputNumber>
 	<InputNumber label="Blur Radius" bind:variable={blur_radius} min={1} max={10} step={1} default_value={1}></InputNumber>
 	<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5}></InputNumber>
 	<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300}></InputNumber>
 
-	<Button onmousedownHandler={on_shader_run} disabled={!can_submit} label="Vectorize"></Button>
-	<Button onmousedownHandler={download_all} disabled={!can_download} label="Download SVG"></Button>
-
-	<div
-		class="add-images relative flex flex-col items-center gap-2 p-4 hover:border-slate-300"
-	>
-		<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-accent border-dashed">
+	<div class="add-images relative flex flex-col items-center gap-2 p-4 text-accent-alt">
+		<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-accent-alt border-dashed">
 			<span class="font-semibold">Add Images</span>
 			<span class="text-sm">Click or drag images here</span>
 			<span class="text-sm">or paste anywhere</span>
@@ -240,11 +238,16 @@
 			type="file"
 			accept="image/*"
 			multiple
-			onchange={onFilesSelected}
+			onchange={on_files_selected}
 			class="absolute inset-0 cursor-pointer opacity-0"
 		/>
 	</div>
-	<div class="flex w-fit flex-col border-2 border-accent">
+
+	<Button onmousedown_handler={on_shader_run} disabled={!can_submit} label="Vectorize"></Button>
+	<Button onmousedown_handler={download_all} disabled={!can_download} label="Download SVG"></Button>
+
+
+	<div class="flex flex-col border-2 border-accent">
 		<span class="text-2xl self-center p-1">Jobs</span>
 
 		<div class="p-2 border-t-2 border-accent flex flex-col gap-2">
@@ -256,15 +259,24 @@
 			{/each}
 		</div>
 	</div>
-</div>
-<div class="checker flex w-fit flex-col gap-2">
-	{#if svgUrl}
-		<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
-	{/if}
-	<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
-	<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
-	<canvas bind:this={blurred_canvas} style="image-rendering: pixelated;"></canvas>
-	<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+
+
+	<div class="flex flex-col gap-2 border-2 border-accent">
+		<span class="text-accent text-2xl self-center p-2">Debug:</span>
+		<div class="flex flex-col gap-2 p-2 border-t-2 border-accent">
+			<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}}></Button>
+
+			<div class="contents {show_debug ? '' : 'hidden'}">
+				{#if svgUrl}
+					<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
+				{/if}
+				<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
+				<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
+				<canvas bind:this={blurred_canvas} style="image-rendering: pixelated;"></canvas>
+				<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+			</div>
+		</div>
+	</div>
 </div>
 
 <style>
@@ -290,12 +302,12 @@
 			45deg,
 			transparent,
 			transparent 4px,
-			var(--color-accent) 4px,
-			var(--color-accent) 6px
+			currentColor 4px,
+			currentColor 6px
 		);
 
 		border-width: var(--border-width);
 		border-style: solid;
-		border-color: var(--color-accent);
+		border-color: currentColor;
 	}
 </style>

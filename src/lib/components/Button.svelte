@@ -1,7 +1,7 @@
 <script lang="ts">
 	interface Props {
 		label: string;
-		onmousedownHandler: () => void;
+		onmousedown_handler: () => void;
 		disabled: boolean;
 	};
 
@@ -9,7 +9,7 @@
 </script>
 
 <button
-	onmousedown={props.onmousedownHandler}
+	onmousedown={props.onmousedown_handler}
 	disabled={props.disabled}
 	class="btn"
 >

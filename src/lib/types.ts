@@ -1,7 +1,7 @@
 export type Job = {
 	file: File;
 	image?: ImageBitmap;
-	svgBlob?: Blob;
+	svg_blob?: Blob;
 	status: 'pending' | 'processing' | 'done' | 'error';
-	eMessage?: string;
+	error_message?: string;
 };
