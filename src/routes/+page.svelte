@@ -331,5 +331,5 @@
 </div>
 
 <div class="absolute bottom-2 right-2 pointer-events-none">
-	<span>v1.0</span>
+	<span>v0.9</span>
 </div>
