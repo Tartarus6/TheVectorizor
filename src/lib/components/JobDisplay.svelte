@@ -2,10 +2,14 @@
 	import type { Job } from "$lib/types";
 	import DownloadIcon from "./icons/DownloadIcon.svelte";
 	import InfoIcon from "./icons/InfoIcon.svelte";
+	import RetryIcon from "./icons/RetryIcon.svelte";
 	import XIcon from "./icons/XIcon.svelte";
 
 	interface Props {
 		job: Job
+		ondownload: (job: Job) => void
+		onretry: (job: Job) => void
+		ondelete: (job: Job) => void
 	}
 
 	let props: Props = $props();
@@ -28,12 +32,18 @@
 				<button class="size-6 text-accent border-2 border-current text-center" onclick={() => (show_error = !show_error)}>
 					<InfoIcon></InfoIcon>
 				</button>
+				<button class="size-6 text-accent border-2 border-current text-center" onclick={() => props.onretry(props.job)}>
+					<RetryIcon></RetryIcon>
+				</button>
 			{:else if props.job.status === 'done'}
-				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => (console.log("TODO: download job"))}>
+				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => props.ondownload(props.job)}>
 					<DownloadIcon></DownloadIcon>
 				</button>
+				<button class="size-6 text-accent-alt border-2 border-current text-center" onclick={() => props.onretry(props.job)}>
+					<RetryIcon></RetryIcon>
+				</button>
 			{/if}
-			<button class="size-6 text-alt border-2 border-current text-center" onclick={() => (console.log("TODO: delete job"))}>
+			<button class="size-6 text-alt border-2 border-current text-center" onclick={() => props.ondelete(props.job)}>
 				<XIcon></XIcon>
 			</button>
 		</div>

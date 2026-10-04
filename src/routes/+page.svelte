@@ -206,6 +206,25 @@
 		jobs = jobs.filter((j) => j.status !== 'done');
 	}
 
+	function download_job(job: Job) {
+		if (!job.svg_blob) return;
+		downloadBlob(job.svg_blob, job.file.name.replace(/\.[^.]+$/, '') + '.svg');
+	}
+
+	// Requeue a job; it runs on the next "Vectorize" so current settings are used
+	function retry_job(job: Job) {
+		if (job.status === 'processing') return;
+		job.svg_blob = undefined;
+		job.error_message = undefined;
+		job.status = 'pending';
+	}
+
+	function delete_job(job: Job) {
+		// the job is mid-run and can't be cancelled
+		if (job.status === 'processing') return;
+		jobs = jobs.filter((j) => j.file !== job.file);
+	}
+
 	function downloadBlob(blob: Blob, filename: string) {
 		const url = URL.createObjectURL(blob);
 
@@ -254,7 +273,7 @@
 					<span class="text-alt">No submitted jobs...</span>
 				{/if}
 				{#each jobs as job (job.file)}
-					<JobDisplay job={job}></JobDisplay>
+					<JobDisplay job={job} ondownload={download_job} onretry={retry_job} ondelete={delete_job}></JobDisplay>
 				{/each}
 			</div>
 		</div>
