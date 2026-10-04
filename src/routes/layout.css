@@ -51,6 +51,10 @@ button:enabled {
 	cursor: pointer;
 }
 
+button:disabled {
+	opacity: 40%;
+}
+
 body {
 	background: var(--color-background);
 	color: var(--color-accent);
@@ -66,3 +70,18 @@ body {
 		currentColor 6px
 	);
 }
+
+.checker {
+		--size: 30px;
+		--color-1: #ccc;
+		--color-2: #bbb;
+		background: conic-gradient(
+			var(--color-1) 90deg,
+			var(--color-2) 90deg 180deg,
+			var(--color-1) 180deg 270deg,
+			var(--color-2) 270deg
+		);
+		background-repeat: repeat;
+		background-size: var(--size) var(--size);
+		background-position: top left;
+	}

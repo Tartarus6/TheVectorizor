@@ -17,6 +17,7 @@ type FacePath = {
 };
 
 const INVALID_CONNECTION = 0xffffffff;
+const MINIMUM_FACE_SIZE = 3;
 
 export async function faceBuffersToSvg(
 	device: GPUDevice,
@@ -181,7 +182,7 @@ export async function faceBuffersToSvg(
 			currentConnectionIdx = connection.nextConnectionIdx;
 		}
 
-		if (!closed || points.length < 3) {
+		if (!closed || points.length < MINIMUM_FACE_SIZE) {
 			continue;
 		}
 

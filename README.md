@@ -2,9 +2,12 @@
 
 This is a webapp that can be used to turn simple raster (pixel) images into vector images.
 
-
 ## Goals/Limitations
 The focus is on simple images. That means limited color palettes, no gradients, etc. Some examples of the targets would be simple logos or the art from Slime Rancher 2 (except for the few that have gradients).
+
+
+## Documentation
+- [Adding and Using Icons](/ADDING_AND_USING_ICONS.md)
 
 
 ## Stages

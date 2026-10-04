@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { run_shader } from '$lib/shaders';
 	import { optimize } from 'svgo/browser';
 	import JSZip from 'jszip';
@@ -8,10 +8,11 @@
 	import type { Job } from '$lib/types';
 	import JobDisplay from '$lib/components/JobDisplay.svelte';
 
+	// DONE: retry, cancel, and download buttons on each job
 	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
 	// TODO: add ability to re-vectorize after changing settings or whatever
-	// TODO: retry, cancel, and download buttons on each job
 	// TODO: (accessibility) make buttons work right with keyboard navigation
+	// TODO: add ability to halt vectorization
 
 	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
 	// TODO: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
@@ -50,6 +51,13 @@
 		return () => document.removeEventListener('paste', on_image_pasted);
 	});
 
+	onDestroy(() => {
+		// Clean up jobs, important to revoke job image URLs
+		for (const job of jobs) {
+			delete_job(job)
+		}
+	})
+
 	function add_files(files: File[]) {
 		jobs.push(
 			...files.map(
@@ -86,6 +94,7 @@
 		add_files(files);
 	}
 
+	// TODO: rename this to make it obviousely different than the do_job() function (or whatever it's been renamed to)
 	// Helper: process a single job
 	async function process_job(job: Job) {
 		try {
@@ -144,9 +153,18 @@
 			job.svg_blob = new Blob([optimizedSvg], { type: 'image/svg+xml' });
 			job.status = 'done';
 
-			// Update preview (clean up old URL)
+			// Update debug preview (clean up old URL)
 			if (svgUrl) URL.revokeObjectURL(svgUrl);
 			svgUrl = URL.createObjectURL(job.svg_blob);
+
+			// Update stored job svg url
+			if (job.svg_url) URL.revokeObjectURL(job.svg_url);
+			job.svg_url = URL.createObjectURL(job.svg_blob);
+
+			// Store job bitmap url if it hadn't already been made
+			if (!job.image_url) {
+				job.image_url = image_canvas.toDataURL()
+			}
 		} catch (err) {
 			console.error(err);
 			job.status = 'error';
@@ -196,7 +214,10 @@
 		}
 
 		// Remove only completed jobs, keep pending/error ones
-		jobs = jobs.filter((j) => j.status !== 'done');
+		done_jobs = jobs.filter((j) => j.status === 'done');
+		for (const job of done_jobs) {
+			delete_job(job);
+		}
 	}
 
 	function download_job(job: Job) {
@@ -204,17 +225,30 @@
 		downloadBlob(job.svg_blob, job.file.name.replace(/\.[^.]+$/, '') + '.svg');
 	}
 
-	// Requeue a job; it runs on the next "Vectorize" so current settings are used
-	function retry_job(job: Job) {
+	// Queue a job; it runs on the next "Vectorize" so current settings are used
+	async function queue_job(job: Job) {
 		if (job.status === 'processing') return;
+		if (working) return;
+
 		job.status = 'pending';
 		job.svg_blob = undefined;
 		job.error_message = undefined;
+
+		working = true;
+
+		await process_job(job);
+
+		working = false;
 	}
 
 	function delete_job(job: Job) {
 		// the job is mid-run and can't be cancelled
 		if (job.status === 'processing') return;
+
+		// clean up urls
+		if (job.image_url) URL.revokeObjectURL(job.image_url);
+		if (job.svg_url) URL.revokeObjectURL(job.svg_url);
+
 		jobs = jobs.filter((j) => j.file !== job.file);
 	}
 
@@ -261,12 +295,12 @@
 		<div class="flex flex-col border-2 border-accent">
 			<span class="self-center p-1">Jobs</span>
 
-			<div class="p-2 border-t-2 border-accent flex flex-col gap-2">
+			<div class="p-2 border-t-2 rounded-none! border-accent flex flex-col gap-2">
 				{#if jobs.length == 0}
 					<span class="text-alt">No submitted jobs...</span>
 				{/if}
 				{#each jobs as job (job.file)}
-					<JobDisplay job={job} ondownload={download_job} onretry={retry_job} ondelete={delete_job}></JobDisplay>
+					<JobDisplay job={job} ondownload={download_job} onqueue={queue_job} ondelete={delete_job} working={working}></JobDisplay>
 				{/each}
 			</div>
 		</div>
@@ -274,16 +308,16 @@
 
 		<div class="flex flex-col border-2 border-accent">
 			<span class="text-accent self-center p-1">Debug:</span>
-			<div class="flex flex-col gap-2 p-2 border-t-2 border-accent">
+			<div class="flex flex-col gap-2 p-2 border-t-2 rounded-none! border-accent">
 				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
 
 				<div class="contents {show_debug ? '' : 'hidden'}">
 					{#if svgUrl}
-						<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="" />
+						<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
 					{/if}
-					<canvas bind:this={edge_canvas} style="image-rendering: pixelated;"></canvas>
-					<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;"></canvas>
-					<canvas bind:this={image_canvas} style="image-rendering: pixelated;"></canvas>
+					<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+					<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+					<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
 				</div>
 			</div>
 		</div>
@@ -296,20 +330,6 @@
 	</section>
 </div>
 
-<style>
-	canvas,
-	img {
-		--size: 30px;
-		--color-1: #ccc;
-		--color-2: #bbb;
-		background: conic-gradient(
-			var(--color-1) 90deg,
-			var(--color-2) 90deg 180deg,
-			var(--color-1) 180deg 270deg,
-			var(--color-2) 270deg
-		);
-		background-repeat: repeat;
-		background-size: var(--size) var(--size);
-		background-position: top left;
-	}
-</style>
+<div class="absolute bottom-2 right-2 pointer-events-none">
+	<span>v1.0</span>
+</div>
