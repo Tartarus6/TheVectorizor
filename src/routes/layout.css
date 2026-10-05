@@ -21,6 +21,8 @@
 * {
 	border-radius: calc(var(--border-width));
 
+	outline: hidden;
+
 	font-family: "Google Sans Flex", sans-serif;
 	font-weight: 550;
 	font-optical-sizing: auto;
@@ -72,16 +74,16 @@ body {
 }
 
 .checker {
-		--size: 30px;
-		--color-1: #ccc;
-		--color-2: #bbb;
-		background: conic-gradient(
-			var(--color-1) 90deg,
-			var(--color-2) 90deg 180deg,
-			var(--color-1) 180deg 270deg,
-			var(--color-2) 270deg
-		);
-		background-repeat: repeat;
-		background-size: var(--size) var(--size);
-		background-position: top left;
-	}
+	--size: 30px;
+	--color-1: #ccc;
+	--color-2: #bbb;
+	background: conic-gradient(
+		var(--color-1) 90deg,
+		var(--color-2) 90deg 180deg,
+		var(--color-1) 180deg 270deg,
+		var(--color-2) 270deg
+	);
+	background-repeat: repeat;
+	background-size: var(--size) var(--size);
+	background-position: top left;
+}

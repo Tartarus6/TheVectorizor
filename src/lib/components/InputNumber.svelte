@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import RestoreIcon from "$lib/components/icons/RestoreIcon.svelte";
+	import MiniButton from "./MiniButton.svelte";
 
 	interface Props {
 		label: string;
@@ -19,20 +20,20 @@
 </script>
 
 <div class="flex flex-col border-2 border-accent p-2">
-	<div class="grid grid-cols-[auto_1fr] grid-rows-1 gap-2">
+	<div class="grid grid-cols-[auto_1fr] grid-rows-1 gap-2 items-center">
 		<span>{label}:</span>
-		<div class="px-1 grid grid-cols-[1fr_auto] w-full border-2 text-accent-alt border-accent-alt focus-within:border-accent-alt-focus">
+		<div class="p-1 grid grid-cols-[1fr_auto] w-full border-2 text-accent-alt border-accent-alt focus-within:border-accent-alt-focus">
 			<input
 				type="number"
 				bind:value={variable}
 				min={min}
 				max={max}
 				step={step}
-				class="h-fit w-full outline-0"
+				class="h-fit w-full outline-none"
 			/>
-			<button class="size-5 self-center cursor-pointer text-accent-alt focus-within:text-alt-focus" onmousedown={() => {variable = default_value}}>
+			<MiniButton handler={() => {variable = default_value}} title="Reset" disabled={false}>
 				<RestoreIcon></RestoreIcon>
-			</button>
+			</MiniButton>
 		</div>
 
 	</div>
@@ -52,15 +53,14 @@
 
 	/* --- Range Input --- */
 	input[type='range'] {
-		--border-color: var(--color-accent-alt);
-		--border: var(--border-width) solid var(--border-color);
+		color: var(--color-accent-alt);
+
+		--border: var(--border-width) solid currentColor;
 
 		--track-height: 0.2rem;
-		--track-color: var(--color-accent-alt);
 
 		--thumb-width: 0.75rem;
 		--thumb-height: 1.75rem;
-		--thumb-color: var(--color-background);
 
 
 		appearance: none;
@@ -71,16 +71,16 @@
 	}
 	input[type='range']:focus {
 		outline: none;
-		--border-color: var(--color-accent-focus);
+		color: var(--color-accent-focus);
 	}
 
 	input[type='range']::-webkit-slider-runnable-track {
 		height: calc(var(--track-height) / 2);
-		background: var(--track-color);
+		background: currentColor;
 	}
 	input[type='range']::-moz-range-track {
 		height: calc(var(--track-height) / 2);
-		background: var(--track-color);
+		background: currentColor;
 		border-radius: var(--border-width);
 	}
 
@@ -88,18 +88,34 @@
 		appearance: none;
 		width: var(--thumb-width);
 		height: var(--thumb-height);
-		background: var(--thumb-color);
+		background: var(--color-background);
 		border: var(--border);
 		border-radius: var(--border-width);
 		/* center the thumb on the track (webkit doesn't do this automatically) */
 		margin-top: calc((var(--track-height) - var(--thumb-height)) / 2 - 2px);
+
+		background: repeating-linear-gradient(
+			45deg,
+			var(--color-background),
+			var(--color-background) 4px,
+			currentColor 4px,
+			currentColor 6px
+		);
 	}
 	input[type='range']::-moz-range-thumb {
 		width: var(--thumb-width);
 		height: var(--thumb-height);
-		background: var(--thumb-color);
+		background: var(--color-background);
 		border: var(--border);
 		border-radius: var(--border-width);
 		box-sizing: border-box;
+
+		background: repeating-linear-gradient(
+			45deg,
+			var(--color-background),
+			var(--color-background) 4px,
+			currentColor 4px,
+			currentColor 6px
+		);
 	}
 </style>

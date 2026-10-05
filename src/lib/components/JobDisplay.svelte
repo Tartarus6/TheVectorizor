@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Job } from "$lib/types";
+	import AnalyzeModal from "./AnalyzeModal.svelte";
 	import BecomesIcon from "./icons/BecomesIcon.svelte";
 	import DownloadIcon from "./icons/DownloadIcon.svelte";
 	import FullscreenIcon from "./icons/FullscreenIcon.svelte";
@@ -7,6 +8,7 @@
 	import RetryIcon from "./icons/RetryIcon.svelte";
 	import RunIcon from "./icons/RunIcon.svelte";
 	import XIcon from "./icons/XIcon.svelte";
+	import MiniButton from "./MiniButton.svelte";
 
 	interface Props {
 		job: Job;
@@ -20,6 +22,7 @@
 
 	let show_error: boolean = $state(false);
 	let show_result: boolean = $state(false);
+	let show_analyze: boolean = $state(false);
 </script>
 
 <div
@@ -28,46 +31,46 @@
 		{props.job.status == 'pending' ? 'border-dotted text-accent rounded-none!' : ''}
 		{props.job.status == 'error' ? 'text-alt' : ''}"
 >
-	<div class="grid grid-cols-[1fr_auto] grid-flow-col items-center p-2">
+	<div class="grid grid-cols-[1fr_auto] grid-flow-col items-center p-1">
 		<span class="break-all">
 			{props.job.file.name}
 		</span>
 		<div class="flex flex-row w-fit gap-1">
 			{#if props.job.status === 'error'}
-				<button class="size-6 text-accent border-2 border-current" title="Info" onclick={() => (show_error = !show_error)}>
+				<MiniButton title="Info" class="text-accent" handler={() => (show_error = !show_error)} disabled={false}>
 					<InfoIcon></InfoIcon>
-				</button>
+				</MiniButton>
 			{:else if props.job.status === 'done'}
-				<!-- <button class="size-6 text-accent border-2 border-current" title="Analyze" onclick={() => (show_result = !show_result)}>
+				<MiniButton title="Analyze" class="text-accent" handler={() => (show_analyze = !show_analyze)} disabled={false}>
 					<FullscreenIcon></FullscreenIcon>
-				</button> -->
-				<button class="size-6 text-accent border-2 border-current" title="View" onclick={() => (show_result = !show_result)}>
+				</MiniButton>
+				<MiniButton title="View" class="text-accent" handler={() => (show_result = !show_result)} disabled={false}>
 					<InfoIcon></InfoIcon>
-				</button>
-				<button class="size-6 text-accent-alt border-2 border-current" title="Download" onclick={() => props.ondownload(props.job)}>
+				</MiniButton>
+				<MiniButton title="Download" class="text-accent-alt" handler={() => props.ondownload(props.job)} disabled={false}>
 					<DownloadIcon></DownloadIcon>
-				</button>
-				<button disabled={props.working} class="size-6 text-accent-alt border-2 border-current" title="Revectorize" onclick={() => props.onqueue(props.job)}>
+				</MiniButton>
+				<MiniButton title="Revectorize" class="text-accent-alt" handler={() => props.onqueue(props.job)} disabled={props.working}>
 					<RetryIcon></RetryIcon>
-				</button>
+				</MiniButton>
 			{:else if props.job.status === 'pending'}
-				<button disabled={props.working} class="size-6 text-accent-alt border-2 border-current" title="Vectorize" onclick={() => props.onqueue(props.job)}>
+				<MiniButton title="Vectorize" class="text-accent-alt" handler={() => props.onqueue(props.job)} disabled={props.working}>
 					<RunIcon></RunIcon>
-				</button>
+				</MiniButton>
 			{/if}
-			<button class="size-6 text-alt border-2 border-current" title="Clear" onclick={() => props.ondelete(props.job)}>
+			<MiniButton title="Vectorize" class="text-alt" handler={() => props.ondelete(props.job)} disabled={false}>
 				<XIcon></XIcon>
-			</button>
+			</MiniButton>
 		</div>
 	</div>
 
 	{#if props.job.status === 'error'}
 		{#if show_error}
-			<span class="border-t-2 p-2 rounded-none! border-current">{props.job.error_message}</span>
+			<span class="border-t-2 p-1 rounded-none! border-current">{props.job.error_message}</span>
 		{/if}
 	{:else if props.job.status === 'done'}
 		{#if show_result}
-			<div class="border-t-2 p-2 rounded-none! border-current grid grid-cols-[1fr_auto_1fr] gap-2 grid-flow-col">
+			<div class="border-t-2 p-1 rounded-none! border-current grid grid-cols-[1fr_auto_1fr] gap-2 grid-flow-col">
 				<img src={props.job.image_url} alt="original" class="checker rounded-none!" />
 				<div class="size-10 self-center text-accent">
 					<BecomesIcon></BecomesIcon>
@@ -77,3 +80,7 @@
 		{/if}
 	{/if}
 </div>
+
+{#if show_analyze}
+	<AnalyzeModal job={props.job} onclose={() => (show_analyze = false)}></AnalyzeModal>
+{/if}

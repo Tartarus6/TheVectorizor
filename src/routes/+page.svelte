@@ -271,7 +271,7 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-2 items-start w-full max-w-192 lg:max-w-384 mx-auto gap-16 p-2 px-8">
 	<section class="flex flex-col gap-2">
-		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent border-2 border-current">
+		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent focus-within:text-accent-focus border-2 border-current">
 			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-current">
 				<span class="font-semibold">Add Images</span>
 				<span>Click or drag images here</span>
