@@ -330,6 +330,6 @@
 	</section>
 </div>
 
-<div class="absolute bottom-2 right-2 pointer-events-none">
+<div class="fixed bottom-2 right-2 pointer-events-none">
 	<span>v0.9</span>
 </div>
