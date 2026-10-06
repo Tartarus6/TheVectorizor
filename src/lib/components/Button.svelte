@@ -3,7 +3,7 @@
 
 	interface Props {
 		label: string;
-		onmousedown_handler: () => void;
+		handler: () => void;
 		disabled: boolean;
 		alt: boolean;
 	};
@@ -12,7 +12,7 @@
 </script>
 
 <button
-	onmousedown={props.onmousedown_handler} onkeydown={(e) => {button_keyboard_handler(e, props.onmousedown_handler)}}
+	onmousedown={props.handler} onkeydown={(e) => {button_keyboard_handler(e, props.handler)}}
 	disabled={props.disabled}
 	class="filled border-2 border-current {props.alt ? 'text-alt focus-within:text-alt-focus' : 'text-accent-alt focus-within:text-accent-alt-focus'} p-2"
 >

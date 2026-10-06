@@ -3,91 +3,41 @@
 	import type { Job } from "$lib/types";
 	import MiniButton from "./MiniButton.svelte";
 	import XIcon from "./icons/XIcon.svelte";
+	import BecomesIcon from "./icons/BecomesIcon.svelte";
+	import Button from "./Button.svelte";
+	import RotateIcon from "./icons/RotateIcon.svelte";
+	import { addZoomPan } from "$lib/renderer";
+	import { get_size_string } from "$lib/utils";
+	import RetryIcon from "./icons/RetryIcon.svelte";
 
 	interface Props {
 		job: Job;
 		onclose: () => void;
 	}
 
+	// TODO: fix the weird zooming behaviour
+
 	let props: Props = $props();
 
-	type Mode = "side" | "swipe";
+	type Mode = "side" | "toggle";
 
 	let dialog: HTMLDialogElement;
-	let mode: Mode = $state("side");
-	let split: number = $state(50); // swipe divider, % of viewport width
-	let cursor: { x: number; y: number } | undefined = $state();
+	let swipe_image_container: HTMLElement | undefined = $state();
+	let swipe_image: HTMLImageElement | undefined = $state();
 
-	// content size in image pixels; ImageBitmap if we have it, otherwise from the <img> load
-	let width: number = $state(0);
-	let height: number = $state(0);
+	let mode: Mode = $state("side");
+
+	let side_by_side_rotated: boolean = $state(false);  // whether side-by-side comparison is rotated
+	let toggle_switch: boolean = $state(false)  // whether to show the bitmap instead of the SVG
 
 	onMount(() => {
-		width = props.job.image?.width ?? 0;
-		height = props.job.image?.height ?? 0;
 		dialog.showModal();
-	});
 
-	function layer_style(): string {
-		return `width:${width * pz.scale}px;height:${height * pz.scale}px;transform:translate(${pz.x}px,${pz.y}px)`;
-	}
-
-	function onkeydown(e: KeyboardEvent) {
-		const step = 60;
-		switch (e.key) {
-			case "+":
-			case "=":
-				// pz.zoomCenter(1.25);
-				break;
-			case "-":
-				// pz.zoomCenter(1 / 1.25);
-				break;
-			case "0":
-				// pz.fit();
-				break;
-			case "1":
-				// pz.actual();
-				break;
-			case "ArrowLeft":
-				// pz.panBy(step, 0);
-				break;
-			case "ArrowRight":
-				// pz.panBy(-step, 0);
-				break;
-			case "ArrowUp":
-				// pz.panBy(0, step);
-				break;
-			case "ArrowDown":
-				// pz.panBy(0, -step);
-				break;
-			default:
-				return;
+		// TODO: this should be more robust
+		if (swipe_image_container && swipe_image) {
+			addZoomPan({container: swipe_image_container, image: swipe_image});
 		}
-		e.preventDefault();
-	}
-
-	function onmove(e: PointerEvent) {
-		const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-		// const ix = Math.floor((e.clientX - r.left - pz.x) / pz.scale);
-		// const iy = Math.floor((e.clientY - r.top - pz.y) / pz.scale);
-		// cursor = ix >= 0 && iy >= 0 && ix < width && iy < height ? { x: ix, y: iy } : undefined;
-	}
-
-	function drag_divider(e: PointerEvent) {
-		e.stopPropagation(); // don't start a pan
-		const handle = e.currentTarget as HTMLElement;
-		handle.setPointerCapture(e.pointerId);
-		const rect = handle.parentElement!.getBoundingClientRect();
-		const move = (ev: PointerEvent) => {
-			split = Math.min(100, Math.max(0, ((ev.clientX - rect.left) / rect.width) * 100));
-		};
-		const up = () => {
-			handle.removeEventListener("pointermove", move);
-			handle.removeEventListener("pointerup", up);
-		};
-		handle.addEventListener("pointermove", move);
-		handle.addEventListener("pointerup", up);
-	}
+	});
 </script>
 
 {#snippet original()}
@@ -95,15 +45,8 @@
 		src={props.job.image_url}
 		alt="original"
 		draggable="false"
-		class="absolute top-0 left-0 max-w-none rounded-none! select-none"
-		style="{layer_style()}; image-rendering: pixelated}"
-		onload={(e) => {
-			const img = e.currentTarget as HTMLImageElement;
-			if (!width) {
-				width = img.naturalWidth;
-				height = img.naturalHeight;
-			}
-		}}
+		class="rounded-none! select-none checker self-center justify-self-center"
+		style="image-rendering: pixelated"
 	/>
 {/snippet}
 
@@ -112,14 +55,13 @@
 		src={props.job.svg_url}
 		alt="svg"
 		draggable="false"
-		class="absolute top-0 left-0 max-w-none rounded-none! select-none"
-		style="{layer_style()}{blend ? '; mix-blend-mode: difference' : ''}"
+		class="rounded-none! select-none checker self-center justify-self-center"
+		style="{blend ? '; mix-blend-mode: difference' : ''}"
 	/>
 {/snippet}
 
 <dialog
 	bind:this={dialog}
-	{onkeydown}
 	onclose={props.onclose}
 	class="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none bg-background p-2 text-accent grid grid-cols-1 grid-rows-1"
 >
@@ -127,7 +69,59 @@
 	<MiniButton handler={props.onclose} disabled={false} title="Close" class="ml-auto mr-0 col-start-1 row-start-1 z-0">
 		<XIcon></XIcon>
 	</MiniButton>
-	<div class="flex flex-col col-start-1 row-start-1">
-		Tada!
+	<div class="flex flex-col col-start-1 row-start-1 gap-4 h-full {mode === "toggle" ? 'overflow-clip' : ''}">
+		<span>Analyzor</span>
+
+		<!-- buttons -->
+		<div>
+			<div class="flex flex-row gap-2 place-self-center">
+				<Button label="Side By Side" alt={false} disabled={mode === "side"} handler={() => {mode = "side"}}></Button>
+				<Button label="Toggle" alt={false} disabled={mode === "toggle"} handler={() => {mode = "toggle"}}></Button>
+
+				{#if mode === "side"}
+					<MiniButton class={side_by_side_rotated ? 'text-alt' : 'text-accent-alt'} title="Rotate Comparison" handler={() => {side_by_side_rotated = !side_by_side_rotated}} disabled={false}>
+						<RotateIcon></RotateIcon>
+					</MiniButton>
+				{/if}
+
+				{#if mode === "toggle"}
+					<MiniButton class={toggle_switch ? 'text-alt' : 'text-accent-alt'} title="Switch Images" handler={() => {toggle_switch = !toggle_switch}} disabled={false}>
+						<RetryIcon></RetryIcon>
+					</MiniButton>
+				{/if}
+			</div>
+		</div>
+
+		<!-- side by side -->
+		{#if mode === "side" && props.job.svg_blob !== undefined}
+			<div class="grid gap-2 {side_by_side_rotated ? 'grid-rows-[1fr_auto_1fr]' : 'grid-cols-[1fr_auto_1fr]'}">
+				<div class="{!side_by_side_rotated ? 'place-self-end' : 'justify-self-center'} grid grid-rows-[auto_1fr] place-items-center">
+					<span>{get_size_string(props.job.file.size)}</span>
+					{@render original()}
+				</div>
+				<div class="size-10 self-center justify-self-center {side_by_side_rotated ? 'rotate-90' : ''}">
+					<BecomesIcon></BecomesIcon>
+				</div>
+				<div class="{!side_by_side_rotated ? 'place-self-start' : 'justify-self-center'} grid grid-rows-[auto_1fr] place-items-center">
+					<span>{get_size_string(props.job.svg_blob.size)}</span>
+					{@render svg(false)}
+				</div>
+			</div>
+		{/if}
+
+		<!-- swipe -->
+		<!-- {#if mode === "swipe"} -->
+		<div bind:this={swipe_image_container} hidden={mode !== "toggle"} class="border-10 h-max p-2 flex-1 checker overflow-hidden">
+			<img
+				bind:this={swipe_image}
+				src={toggle_switch ? props.job.image_url : props.job.svg_url}
+				alt="original"
+				draggable="false"
+				class="rounded-none! select-none pointer-events-none max-h-full max-w-full will-change-transform mx-auto my-auto"
+				style="image-rendering: pixelated"
+			/>
+		</div>
+		<!-- {/if} -->
+
 	</div>
 </dialog>

@@ -173,7 +173,7 @@
 		}
 	}
 
-	async function on_shader_run() {
+	async function on_vectorize() {
 		if (!has_pending || working) return;
 
 		working = true;
@@ -232,6 +232,8 @@
 
 		job.status = 'pending';
 		job.svg_blob = undefined;
+		job.svg_url = undefined;
+		job.image_url = undefined;
 		job.error_message = undefined;
 
 		working = true;
@@ -288,8 +290,8 @@
 			/>
 		</div>
 
-		<Button onmousedown_handler={on_shader_run} disabled={!can_submit} label="Vectorize" alt={false}></Button>
-		<Button onmousedown_handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
+		<Button handler={on_vectorize} disabled={!can_submit} label="Vectorize" alt={false}></Button>
+		<Button handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
 
 
 		<div class="flex flex-col border-2 border-accent">
@@ -309,7 +311,7 @@
 		<div class="flex flex-col border-2 border-accent">
 			<span class="text-accent self-center p-1">Debug:</span>
 			<div class="flex flex-col gap-2 p-2 border-t-2 rounded-none! border-accent">
-				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} onmousedown_handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
+				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
 
 				<div class="contents {show_debug ? '' : 'hidden'}">
 					{#if svgUrl}

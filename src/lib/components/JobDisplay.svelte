@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Job } from "$lib/types";
+	import { get_size_string } from "$lib/utils";
 	import AnalyzeModal from "./AnalyzeModal.svelte";
 	import BecomesIcon from "./icons/BecomesIcon.svelte";
 	import DownloadIcon from "./icons/DownloadIcon.svelte";
@@ -40,6 +41,9 @@
 				<MiniButton title="Info" class="text-accent" handler={() => (show_error = !show_error)} disabled={false}>
 					<InfoIcon></InfoIcon>
 				</MiniButton>
+				<MiniButton title="Revectorize" class="text-accent-alt" handler={() => props.onqueue(props.job)} disabled={props.working}>
+					<RetryIcon></RetryIcon>
+				</MiniButton>
 			{:else if props.job.status === 'done'}
 				<MiniButton title="Analyze" class="text-accent" handler={() => (show_analyze = !show_analyze)} disabled={false}>
 					<FullscreenIcon></FullscreenIcon>
@@ -69,13 +73,19 @@
 			<span class="border-t-2 p-1 rounded-none! border-current">{props.job.error_message}</span>
 		{/if}
 	{:else if props.job.status === 'done'}
-		{#if show_result}
+		{#if show_result && props.job.svg_blob !== undefined}
 			<div class="border-t-2 p-1 rounded-none! border-current grid grid-cols-[1fr_auto_1fr] gap-2 grid-flow-col">
-				<img src={props.job.image_url} alt="original" class="checker rounded-none!" />
+				<div class="grid grid-rows-[auto_1fr] place-items-center">
+					<span>{get_size_string(props.job.file.size)}</span>
+					<img src={props.job.image_url} alt="original" class="checker rounded-none!" />
+				</div>
 				<div class="size-10 self-center text-accent">
 					<BecomesIcon></BecomesIcon>
 				</div>
-				<img src={props.job.svg_url} alt="svg" class="checker rounded-none!" />
+				<div class="grid grid-rows-[auto_1fr] place-items-center">
+					<span>{get_size_string(props.job.svg_blob.size)}</span>
+					<img src={props.job.svg_url} alt="svg" class="checker rounded-none!" />
+				</div>
 			</div>
 		{/if}
 	{/if}

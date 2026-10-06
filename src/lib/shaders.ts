@@ -11,6 +11,7 @@ import edge_visualization_shader from '$lib/shaders/edge_visualization.wgsl?raw'
 import face_trace_init_shader from '$lib/shaders/face_trace_init.wgsl?raw';
 import face_trace_jump_shader from '$lib/shaders/face_trace_jump.wgsl?raw';
 import { faceBuffersToSvg } from '$lib/face_svg';
+import cluster from 'cluster';
 
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
@@ -160,8 +161,8 @@ type Pipelines = {
 };
 
 export async function run_shader(
-	clusterCanvas: GPUCanvasContext,
-	edgeCanvas: GPUCanvasContext,
+	clusterCanvas: GPUCanvasContext | undefined,
+	edgeCanvas: GPUCanvasContext | undefined,
 	imageBitMap: ImageBitmap,
 	base_bandwidth: number,
 	num_cluster_passes: number,
@@ -239,7 +240,7 @@ export async function run_shader(
 	const grad_tex_b = num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong
 
 	// -- OkLab → Srgb (cluster visualization)
-	await oklabToSrgbPass(device, pipelines.oklabToSrgb, grad_tex_a, false, clusterCanvas);
+	if (clusterCanvas) await oklabToSrgbPass(device, pipelines.oklabToSrgb, grad_tex_a, false, clusterCanvas);
 
 	// --- Gaussian Gradient ---
 	await gaussianGradientPass(
@@ -340,13 +341,15 @@ export async function run_shader(
 	// const finalConnectionData = faceBuffers.edgeDataPing;
 
 	// --- Edge Visualization ---
-	await edgeVisualizationPass(
-		device,
-		pipelines.edgeVisualization,
-		final_edge_texture,
-		finalConnectionData,
-		edgeCanvas
-	);
+	if (edgeCanvas) {
+		await edgeVisualizationPass(
+			device,
+			pipelines.edgeVisualization,
+			final_edge_texture,
+			finalConnectionData,
+			edgeCanvas
+		);
+	}
 
 	// --- Svg Creation ---
 	const svg = await faceBuffersToSvg(
