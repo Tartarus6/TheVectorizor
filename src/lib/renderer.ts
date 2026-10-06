@@ -43,15 +43,17 @@ export const addZoomPan = ({ container, image }: { container: HTMLElement; image
 		container.style.cursor = scale === MIN_SCALE ? 'zoom-in' : 'move'
 	}
 
-	// Keep the scaled image covering the container (or centered on an axis where it is smaller).
+	// Keep the scaled image covering the container. On an axis where it is smaller than the container,
+	// keep it inside the container instead (not forced to center, so zoom still anchors on the cursor).
 	const clampTranslate = (baseLeft: number, baseTop: number) => {
 		const c = container.getBoundingClientRect()
 		const w = image.offsetWidth * scale
 		const h = image.offsetHeight * scale
 
 		const fit = (base: number, t: number, size: number, cStart: number, cSize: number) => {
-			if (size <= cSize) return cStart + (cSize - size) / 2 - base
-			return clamp(t, cStart + cSize - size - base, cStart - base)
+			const a = cStart + cSize - size - base
+			const b = cStart - base
+			return clamp(t, Math.min(a, b), Math.max(a, b))
 		}
 
 		tx = fit(baseLeft, tx, w, c.left, c.width)
@@ -78,6 +80,10 @@ export const addZoomPan = ({ container, image }: { container: HTMLElement; image
 		scale = newScale
 
 		clampTranslate(baseLeft, baseTop)
+		if (scale === MIN_SCALE) {
+			tx = 0
+			ty = 0
+		}
 		render()
 	}
 
