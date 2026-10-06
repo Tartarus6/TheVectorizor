@@ -13,7 +13,6 @@
 		onclose: () => void;
 	}
 
-	// TODO: fix the weird zooming behaviour
 	// TODO: make controlls less ass
 
 	let props: Props = $props();
