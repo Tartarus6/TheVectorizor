@@ -7,6 +7,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import type { Job } from '$lib/types';
 	import JobDisplay from '$lib/components/JobDisplay.svelte';
+	import VectorizorIcon from '$lib/components/icons/VectorizorIcon.svelte';
 
 	// DONE: retry, cancel, and download buttons on each job
 	// DONE: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
@@ -268,9 +269,11 @@
 	}
 </script>
 
-<div class="w-full flex flex-col pb-8 place-items-center">
-	<span>The Vectorizor</span>
-	<span>Vectorize your images entirely localy, with the power of WebGPU!</span>
+<div class="w-full flex flex-col pb-8 place-items-center p-4">
+	<div class="max-w-128 w-full">
+		<VectorizorIcon></VectorizorIcon>
+	</div>
+	<span class="text-center">Vectorize your images entirely localy, with the power of WebGPU!</span>
 </div>
 
 <div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 p-2 px-8">
