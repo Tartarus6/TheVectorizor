@@ -38,7 +38,7 @@
 		</div>
 
 	</div>
-	<input type="range" bind:value={variable} min={min} max={max} step={step} />
+	<input type="range" bind:value={variable} min={min} max={max} step={step} class="px-2" />
 	<div class="w-full py-1 px-2 border-t-2 border-current">
 		<span>{description}</span>
 	</div>

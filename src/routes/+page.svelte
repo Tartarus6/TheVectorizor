@@ -276,7 +276,7 @@
 	<span class="text-center">Vectorize your images entirely localy, with the power of WebGPU!</span>
 </div>
 
-<div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 p-2 px-8">
+<div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 pt-2 pb-4 px-8">
 	<section class="flex flex-col gap-4">
 		<!-- File Chooser -->
 		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent focus-within:text-accent-focus border-2 border-current">
@@ -308,7 +308,10 @@
 
 			<div class="p-2 border-t-2 rounded-none! border-current flex flex-col gap-2">
 				{#if jobs.length == 0}
-					<span class="text-alt">No submitted jobs...</span>
+					<div class="text-alt flex flex-col">
+						<span>Add images to Vectorize...</span>
+						<span></span>
+					</div>
 				{/if}
 				{#each jobs as job (job.file)}
 					<JobDisplay job={job} ondownload={download_job} onqueue={queue_job} ondelete={delete_job} working={working}></JobDisplay>
@@ -316,13 +319,11 @@
 			</div>
 		</div>
 
-		<!-- Known Issues -->
-		<div class="flex flex-col text-alt border-2 border-current">
-			<span class="self-center p-1">Known Issues:</span>
+		<!-- Fun Fact -->
+		<div class="flex flex-col text-accent-alt border-2 border-current">
+			<span class="self-center p-1">Fun Fact!</span>
 			<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
-				<span>(Will Fix) Transparency levels don't add up correctly. So sometimes outputs will be less transparent on parts than they should be.</span>
-				<span>(Will Fix) Transparent holes do not get drawn (same cause as previous issue). It just draws a transparent shape on top of a filled shape, but does not cut a hole through.</span>
-				<span>(Won't Fix) This won't work if you don't have WebGPU enabled</span>
+				<span>This website makes no use of machine learning in order to Vectorize your images! Instead, it just uses a ton of classical image processing techniques. You can get a peek into how it works by looking at the debug section at the bottom of the settings below.</span>
 			</div>
 		</div>
 	</section>
@@ -331,14 +332,31 @@
 		<!-- Show/Hide Settings Button -->
 		<Button label={show_settings ? 'Hide Settings' : "Show Settings"} alt={show_settings} disabled={false} handler={() => {show_settings = !show_settings}}></Button>
 
-		<!-- Settings -->
 		<div class="contents" hidden={!show_settings}>
-			<div class="text-accent-alt p-2 border-2 border-current">
-				<span>Note: These default settings values should work for almost anything, you shouldn't have to worry about adjusting them.</span>
+			<!-- Note -->
+			<div class="flex flex-col text-accent-alt border-2 border-current">
+				<span class="self-center p-1">Note</span>
+				<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
+					<span>These default settings values should work for almost anything, you shouldn't have to worry about adjusting them.</span>
+				</div>
 			</div>
-			<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05} description="Increasing this value makes color averaging more aggressive. Colors that are farther apart will be grouped together."></InputNumber>
-			<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5} description="This is the number of color clustering passes. Increasing this can help if the output colors you are getting aren't accurate enough."></InputNumber>
-			<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300} description="This is the number of edge tracing passes. If certain elements in your image aren't ending up in the output, increasing this *might* help."></InputNumber>
+
+			<!-- Settings -->
+			<div class="p-1 border-2 border-current flex flex-col gap-2">
+				<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05} description="Increasing this value makes color averaging more aggressive. Colors that are farther apart will be grouped together."></InputNumber>
+				<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5} description="This is the number of color clustering passes. Increasing this can help if the output colors you are getting aren't accurate enough."></InputNumber>
+				<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300} description="This is the number of edge tracing passes. If certain elements in your image aren't ending up in the output, increasing this *might* help."></InputNumber>
+			</div>
+
+			<!-- Known Issues -->
+			<div class="flex flex-col text-alt border-2 border-current">
+				<span class="self-center p-1">Known Issues</span>
+				<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
+					<span>(Will Fix) Transparency levels don't add up correctly. So sometimes outputs will be less transparent on parts than they should be.</span>
+					<span>(Will Fix) Transparent holes do not get drawn (same cause as previous issue). It just draws a transparent shape on top of a filled shape, but does not cut a hole through.</span>
+					<span>(Won't Fix) This won't work if you don't have WebGPU enabled</span>
+				</div>
+			</div>
 
 			<!-- Debug -->
 			<div class="flex flex-col border-2 border-current text-alt">
@@ -346,7 +364,7 @@
 				<div class="flex flex-col gap-2 p-2 border-t-2 rounded-none! border-current">
 					<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
 
-					<div class="contents {show_debug ? '' : 'hidden'}">
+					<div class="contents" hidden={!show_debug}>
 						{#if svgUrl}
 							<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
 						{/if}
