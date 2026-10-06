@@ -119,7 +119,7 @@
 				src={toggle_switch ? props.job.image_url : props.job.svg_url}
 				alt="original"
 				draggable="false"
-				class="rounded-none! select-none pointer-events-none max-h-full max-w-full will-change-transform mx-auto self-center"
+				class="rounded-none! select-none pointer-events-none max-h-full max-w-full will-change-transform"
 				style="image-rendering: pixelated"
 			/>
 		</div>
