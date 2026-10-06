@@ -10,17 +10,18 @@
 		max: number;
 		step: number;
 		default_value: number;
+		description: string;
 	};
 
-	let {label, variable = $bindable(), min, max, step, default_value}: Props = $props();
+	let {label, variable = $bindable(), min, max, step, default_value, description}: Props = $props();
 
 	onMount(() => {
 		variable = default_value  // initialize the variable to its default value
 	});
 </script>
 
-<div class="flex flex-col border-2 border-accent p-2">
-	<div class="grid grid-cols-[auto_1fr] grid-rows-1 gap-2 items-center">
+<div class="flex flex-col border-2 border-accent">
+	<div class="grid grid-cols-[auto_1fr] grid-rows-1 gap-2 items-center p-2">
 		<span>{label}:</span>
 		<div class="p-1 grid grid-cols-[1fr_auto] w-full border-2 text-accent-alt border-accent-alt focus-within:border-accent-alt-focus">
 			<input
@@ -38,6 +39,9 @@
 
 	</div>
 	<input type="range" bind:value={variable} min={min} max={max} step={step} />
+	<div class="w-full py-1 px-2 border-t-2 border-current">
+		<span>{description}</span>
+	</div>
 </div>
 
 <style>

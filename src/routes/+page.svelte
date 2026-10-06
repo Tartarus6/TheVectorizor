@@ -9,20 +9,22 @@
 	import JobDisplay from '$lib/components/JobDisplay.svelte';
 
 	// DONE: retry, cancel, and download buttons on each job
-	// TODO: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
-	// TODO: add ability to re-vectorize after changing settings or whatever
-	// TODO: (accessibility) make buttons work right with keyboard navigation
+	// DONE: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
+	// TODO: add ability to re-vectorize after changing settings or whatever (still needs to be done for main vectorize button)
+	// TODO: (accessibility) make buttons work right with keyboard navigation (some still need work)
 	// TODO: add ability to halt vectorization
+	// TODO: add a warning or error or something to the UI that shows up when there's no WebGPU
 
 	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
-	// TODO: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
+	// DONE: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
+	// DONE: (style) apply a tiny round to EVERYTHING to better the circular shape a CRT beam lights up
 	// TODO: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
-	// TODO: (style) apply a tiny round to EVERYTHING to better the circular shape a CRT beam lights up
 
 	let jobs = $state<Job[]>([]);
 	let working: boolean = $state(false);
 
 	let show_debug: boolean = $state(false);
+	let show_settings: boolean = $state(false);
 
 	// Derived state for UI
 	let pending_jobs = $derived(jobs.filter((j) => j.status === 'pending'));
@@ -271,8 +273,9 @@
 	<span>Vectorize your images entirely localy, with the power of WebGPU!</span>
 </div>
 
-<div class="grid grid-cols-1 lg:grid-cols-2 items-start w-full max-w-192 lg:max-w-384 mx-auto gap-16 p-2 px-8">
-	<section class="flex flex-col gap-2">
+<div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 p-2 px-8">
+	<section class="flex flex-col gap-4">
+		<!-- File Chooser -->
 		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent focus-within:text-accent-focus border-2 border-current">
 			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-current">
 				<span class="font-semibold">Add Images</span>
@@ -290,14 +293,17 @@
 			/>
 		</div>
 
-		<Button handler={on_vectorize} disabled={!can_submit} label="Vectorize" alt={false}></Button>
-		<Button handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
+		<!-- Buttons -->
+		<div class="flex flex-col gap-2">
+			<Button handler={on_vectorize} disabled={!can_submit} label="Vectorize" alt={false}></Button>
+			<Button handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
+		</div>
 
-
-		<div class="flex flex-col border-2 border-accent">
+		<!-- Jobs -->
+		<div class="flex flex-col border-2 border-current">
 			<span class="self-center p-1">Jobs</span>
 
-			<div class="p-2 border-t-2 rounded-none! border-accent flex flex-col gap-2">
+			<div class="p-2 border-t-2 rounded-none! border-current flex flex-col gap-2">
 				{#if jobs.length == 0}
 					<span class="text-alt">No submitted jobs...</span>
 				{/if}
@@ -307,28 +313,47 @@
 			</div>
 		</div>
 
-
-		<div class="flex flex-col border-2 border-accent">
-			<span class="text-accent self-center p-1">Debug:</span>
-			<div class="flex flex-col gap-2 p-2 border-t-2 rounded-none! border-accent">
-				<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
-
-				<div class="contents {show_debug ? '' : 'hidden'}">
-					{#if svgUrl}
-						<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
-					{/if}
-					<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
-					<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
-					<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
-				</div>
+		<!-- Known Issues -->
+		<div class="flex flex-col text-alt border-2 border-current">
+			<span class="self-center p-1">Known Issues:</span>
+			<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
+				<span>(Will Fix) Transparency levels don't add up correctly. So sometimes outputs will be less transparent on parts than they should be.</span>
+				<span>(Will Fix) Transparent holes do not get drawn (same cause as previous issue). It just draws a transparent shape on top of a filled shape, but does not cut a hole through.</span>
+				<span>(Won't Fix) This won't work if you don't have WebGPU enabled</span>
 			</div>
 		</div>
 	</section>
 
-	<section class="flex flex-col gap-2">
-		<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05}></InputNumber>
-		<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5}></InputNumber>
-		<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300}></InputNumber>
+	<section class="flex flex-col gap-4">
+		<!-- Show/Hide Settings Button -->
+		<Button label={show_settings ? 'Hide Settings' : "Show Settings"} alt={show_settings} disabled={false} handler={() => {show_settings = !show_settings}}></Button>
+
+		<!-- Settings -->
+		<div class="contents" hidden={!show_settings}>
+			<div class="text-accent-alt p-2 border-2 border-current">
+				<span>Note: These default settings values should work for almost anything, you shouldn't have to worry about adjusting them.</span>
+			</div>
+			<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05} description="Increasing this value makes color averaging more aggressive. Colors that are farther apart will be grouped together."></InputNumber>
+			<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5} description="This is the number of color clustering passes. Increasing this can help if the output colors you are getting aren't accurate enough."></InputNumber>
+			<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300} description="This is the number of edge tracing passes. If certain elements in your image aren't ending up in the output, increasing this *might* help."></InputNumber>
+
+			<!-- Debug -->
+			<div class="flex flex-col border-2 border-current text-alt">
+				<span class="self-center p-1">Debug:</span>
+				<div class="flex flex-col gap-2 p-2 border-t-2 rounded-none! border-current">
+					<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
+
+					<div class="contents {show_debug ? '' : 'hidden'}">
+						{#if svgUrl}
+							<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
+						{/if}
+						<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+						<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+						<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+					</div>
+				</div>
+			</div>
+		</div>
 	</section>
 </div>
 

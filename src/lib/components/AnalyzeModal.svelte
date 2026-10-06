@@ -5,10 +5,8 @@
 	import XIcon from "./icons/XIcon.svelte";
 	import BecomesIcon from "./icons/BecomesIcon.svelte";
 	import Button from "./Button.svelte";
-	import RotateIcon from "./icons/RotateIcon.svelte";
 	import { addZoomPan } from "$lib/renderer";
 	import { get_size_string } from "$lib/utils";
-	import RetryIcon from "./icons/RetryIcon.svelte";
 
 	interface Props {
 		job: Job;
@@ -16,16 +14,17 @@
 	}
 
 	// TODO: fix the weird zooming behaviour
+	// TODO: make controlls less ass
 
 	let props: Props = $props();
 
 	type Mode = "side" | "toggle";
 
 	let dialog: HTMLDialogElement;
-	let swipe_image_container: HTMLElement | undefined = $state();
-	let swipe_image: HTMLImageElement | undefined = $state();
+	let toggle_image_container: HTMLElement | undefined = $state();
+	let toggle_image: HTMLImageElement | undefined = $state();
 
-	let mode: Mode = $state("side");
+	let mode: Mode = $state("toggle");
 
 	let side_by_side_rotated: boolean = $state(false);  // whether side-by-side comparison is rotated
 	let toggle_switch: boolean = $state(false)  // whether to show the bitmap instead of the SVG
@@ -34,8 +33,8 @@
 		dialog.showModal();
 
 		// TODO: this should be more robust
-		if (swipe_image_container && swipe_image) {
-			addZoomPan({container: swipe_image_container, image: swipe_image});
+		if (toggle_image_container && toggle_image) {
+			addZoomPan({container: toggle_image_container, image: toggle_image});
 		}
 	});
 </script>
@@ -73,21 +72,24 @@
 		<span>Analyzor</span>
 
 		<!-- buttons -->
-		<div>
-			<div class="flex flex-row gap-2 place-self-center">
+		<div class="grid grid-cols-2">
+			<div class="flex flex-row gap-2">
 				<Button label="Side By Side" alt={false} disabled={mode === "side"} handler={() => {mode = "side"}}></Button>
-				<Button label="Toggle" alt={false} disabled={mode === "toggle"} handler={() => {mode = "toggle"}}></Button>
-
+				<Button label="Zoom & Toggle" alt={false} disabled={mode === "toggle"} handler={() => {mode = "toggle"}}></Button>
+			</div>
+			<div class="flex flex-row gap-2 place-self-end">
 				{#if mode === "side"}
-					<MiniButton class={side_by_side_rotated ? 'text-alt' : 'text-accent-alt'} title="Rotate Comparison" handler={() => {side_by_side_rotated = !side_by_side_rotated}} disabled={false}>
+					<Button label="Compare Rotate" alt={side_by_side_rotated} disabled={false} handler={() => {side_by_side_rotated = !side_by_side_rotated}}></Button>
+					<!-- <MiniButton class={side_by_side_rotated ? 'text-alt' : 'text-accent-alt'} title="Rotate Comparison" handler={() => {side_by_side_rotated = !side_by_side_rotated}} disabled={false}>
 						<RotateIcon></RotateIcon>
-					</MiniButton>
+					</MiniButton> -->
 				{/if}
 
 				{#if mode === "toggle"}
-					<MiniButton class={toggle_switch ? 'text-alt' : 'text-accent-alt'} title="Switch Images" handler={() => {toggle_switch = !toggle_switch}} disabled={false}>
+					<Button label={toggle_switch ? "Switch to SVG" : "Switch to Original"} alt={toggle_switch} disabled={false} handler={() => {toggle_switch = !toggle_switch}}></Button>
+					<!-- <MiniButton class={toggle_switch ? 'text-alt' : 'text-accent-alt'} title="Switch Images" handler={() => {toggle_switch = !toggle_switch}} disabled={false}>
 						<RetryIcon></RetryIcon>
-					</MiniButton>
+					</MiniButton> -->
 				{/if}
 			</div>
 		</div>
@@ -109,17 +111,19 @@
 			</div>
 		{/if}
 
-		<!-- swipe -->
-		<!-- {#if mode === "swipe"} -->
-		<div bind:this={swipe_image_container} hidden={mode !== "toggle"} class="border-10 h-max p-2 flex-1 checker overflow-hidden">
+		<!-- toggle -->
+		<!-- {#if mode === "toggle"} -->
+		<div class="border-2 h-max p-2 flex-1 overflow-hidden" hidden={mode !== "toggle"}>
+		<div bind:this={toggle_image_container} hidden={mode !== "toggle"} class="h-full p-2 flex checker overflow-hidden rounded-none!">
 			<img
-				bind:this={swipe_image}
+				bind:this={toggle_image}
 				src={toggle_switch ? props.job.image_url : props.job.svg_url}
 				alt="original"
 				draggable="false"
-				class="rounded-none! select-none pointer-events-none max-h-full max-w-full will-change-transform mx-auto my-auto"
+				class="rounded-none! select-none pointer-events-none max-h-full max-w-full will-change-transform mx-auto self-center"
 				style="image-rendering: pixelated"
 			/>
+		</div>
 		</div>
 		<!-- {/if} -->
 

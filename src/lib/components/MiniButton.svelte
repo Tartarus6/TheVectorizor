@@ -13,6 +13,6 @@
 	let props: Props = $props()
 </script>
 
-<button disabled={props.disabled} class="{props.class} size-6 border-2 border-current" title="Info" onkeydown={(e) => button_keyboard_handler(e, props.handler)} onmousedown={props.handler}>
+<button disabled={props.disabled} class="{props.class} size-6 border-2 border-current" title={props.title} onkeydown={(e) => button_keyboard_handler(e, props.handler)} onmousedown={props.handler}>
 	{@render props.children?.()}
 </button>
