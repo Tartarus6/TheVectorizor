@@ -8,6 +8,7 @@
 const MIN_SCALE = 1
 const MAX_SCALE = 8
 const DOUBLE_TAP_TIME = 185 // milliseconds
+const SETTLE_SCALE = 1.3 // below this scale, zooming out eases the image back to its resting position
 const WHEEL_ZOOM_SPEED = 0.0015 // exponent per pixel of wheel delta
 
 type InstanceState = 'idle' | 'singleGesture' | 'multiGesture' | 'mouse'
@@ -43,17 +44,18 @@ export const addZoomPan = ({ container, image }: { container: HTMLElement; image
 		container.style.cursor = scale === MIN_SCALE ? 'zoom-in' : 'move'
 	}
 
-	// Keep the scaled image covering the container. On an axis where it is smaller than the container,
-	// keep it inside the container instead (not forced to center, so zoom still anchors on the cursor).
-	const clampTranslate = (baseLeft: number, baseTop: number) => {
+	// Keep the scaled image covering the container. An axis where the image is smaller than the container
+	// is left free while zooming (so it anchors on the cursor); when panning it just stays inside the container.
+	const clampTranslate = (baseLeft: number, baseTop: number, panning: boolean) => {
 		const c = container.getBoundingClientRect()
 		const w = image.offsetWidth * scale
 		const h = image.offsetHeight * scale
 
 		const fit = (base: number, t: number, size: number, cStart: number, cSize: number) => {
-			const a = cStart + cSize - size - base
-			const b = cStart - base
-			return clamp(t, Math.min(a, b), Math.max(a, b))
+			const lo = cStart + cSize - size - base
+			const hi = cStart - base
+			if (size >= cSize) return clamp(t, lo, hi)
+			return panning ? clamp(t, hi, lo) : t
 		}
 
 		tx = fit(baseLeft, tx, w, c.left, c.width)
@@ -77,13 +79,18 @@ export const addZoomPan = ({ container, image }: { container: HTMLElement; image
 		const k = newScale / scale
 		tx = px - (px - tx) * k
 		ty = py - (py - ty) * k
+
+		// Zooming out, ease the offset to the origin over the last stretch so reaching 1x doesn't jump.
+		if (newScale < scale) {
+			const from = Math.min(scale, SETTLE_SCALE) - 1
+			const to = Math.min(newScale, SETTLE_SCALE) - 1
+			const f = from > 0 ? to / from : 0
+			tx *= f
+			ty *= f
+		}
 		scale = newScale
 
-		clampTranslate(baseLeft, baseTop)
-		if (scale === MIN_SCALE) {
-			tx = 0
-			ty = 0
-		}
+		clampTranslate(baseLeft, baseTop, false)
 		render()
 	}
 
@@ -93,7 +100,7 @@ export const addZoomPan = ({ container, image }: { container: HTMLElement; image
 		const baseTop = rect.top - ty
 		tx += dx
 		ty += dy
-		clampTranslate(baseLeft, baseTop)
+		clampTranslate(baseLeft, baseTop, true)
 		render()
 	}
 
