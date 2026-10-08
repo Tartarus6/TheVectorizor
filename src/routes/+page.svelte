@@ -8,6 +8,7 @@
 	import type { Job } from '$lib/types';
 	import JobDisplay from '$lib/components/JobDisplay.svelte';
 	import VectorizorIcon from '$lib/components/icons/VectorizorIcon.svelte';
+	import TitledSection from '$lib/components/TitledSection.svelte';
 
 	// DONE: retry, cancel, and download buttons on each job
 	// DONE: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
@@ -276,8 +277,13 @@
 	<span class="text-center">Vectorize your images entirely localy, with the power of WebGPU!</span>
 </div>
 
-<div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 pt-2 pb-4 px-8">
+<div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 pt-2 pb-8 px-8">
 	<section class="flex flex-col gap-4">
+		<!-- What's this For? -->
+		<TitledSection title="What's this For?" class="text-accent-alt">
+			<span>This website is a tool to convert bitmap images (JPG, PNG, etc.) into SVGs. This tool is built to handle simple graphics, such as logos, but feel free to try other images.</span>
+		</TitledSection>
+
 		<!-- File Chooser -->
 		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent focus-within:text-accent-focus border-2 border-current">
 			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-current">
@@ -297,16 +303,14 @@
 		</div>
 
 		<!-- Buttons -->
-		<div class="flex flex-col gap-2">
+		<div class="flex flex-col gap-2 p-1 text-accent-alt border-current border-2">
 			<Button handler={on_vectorize} disabled={!can_submit} label="Vectorize" alt={false}></Button>
 			<Button handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
 		</div>
 
 		<!-- Jobs -->
-		<div class="flex flex-col border-2 border-current">
-			<span class="self-center p-1">Jobs</span>
-
-			<div class="p-2 border-t-2 rounded-none! border-current flex flex-col gap-2">
+		<TitledSection title="Jobs">
+			<div class="flex flex-col gap-2">
 				{#if jobs.length == 0}
 					<div class="text-alt flex flex-col">
 						<span>Add images to Vectorize...</span>
@@ -317,15 +321,12 @@
 					<JobDisplay job={job} ondownload={download_job} onqueue={queue_job} ondelete={delete_job} working={working}></JobDisplay>
 				{/each}
 			</div>
-		</div>
+		</TitledSection>
 
 		<!-- Fun Fact -->
-		<div class="flex flex-col text-accent-alt border-2 border-current">
-			<span class="self-center p-1">Fun Fact!</span>
-			<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
-				<span>This website makes no use of machine learning in order to Vectorize your images! Instead, it just uses a ton of classical image processing techniques. You can get a peek into how it works by looking at the debug section at the bottom of the settings below.</span>
-			</div>
-		</div>
+		<TitledSection title="Fun Fact!" class="text-accent-alt">
+			<span>This website makes no use of machine learning in order to Vectorize your images! Instead, it just uses a ton of classical image processing techniques. You can get a peek into how it works by looking at the debug section at the bottom of the settings below.</span>
+		</TitledSection>
 	</section>
 
 	<section class="flex flex-col gap-4">
@@ -333,14 +334,6 @@
 		<Button label={show_settings ? 'Hide Settings' : "Show Settings"} alt={show_settings} disabled={false} handler={() => {show_settings = !show_settings}}></Button>
 
 		<div class="contents" hidden={!show_settings}>
-			<!-- Note -->
-			<div class="flex flex-col text-accent-alt border-2 border-current">
-				<span class="self-center p-1">Note</span>
-				<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
-					<span>These default settings values should work for almost anything, you shouldn't have to worry about adjusting them.</span>
-				</div>
-			</div>
-
 			<!-- Settings -->
 			<div class="p-1 border-2 border-current flex flex-col gap-2">
 				<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05} description="Increasing this value makes color averaging more aggressive. Colors that are farther apart will be grouped together."></InputNumber>
@@ -349,21 +342,21 @@
 			</div>
 
 			<!-- Known Issues -->
-			<div class="flex flex-col text-alt border-2 border-current">
-				<span class="self-center p-1">Known Issues</span>
-				<div class="flex flex-col gap-4 p-2 border-t-2 rounded-none! border-current">
+			<TitledSection title="Known Issues" class="text-alt">
+				<div class="flex flex-col gap-4">
+					<span>(Won't Fix) This won't work if you don't have WebGPU enabled</span>
 					<span>(Will Fix) Transparency levels don't add up correctly. So sometimes outputs will be less transparent on parts than they should be.</span>
 					<span>(Will Fix) Transparent holes do not get drawn (same cause as previous issue). It just draws a transparent shape on top of a filled shape, but does not cut a hole through.</span>
-					<span>(Won't Fix) This won't work if you don't have WebGPU enabled</span>
+					<span>(Might Fix) Textured images and graphics that use textured lines (like pencil) may struggle.</span>
+					<span>(Might Fix) Gradients cannot be properly represented, and can mess up edge detection.</span>
+					<span>(Might Fix) Sometimes, edges near the border of </span>
 				</div>
-			</div>
+			</TitledSection>
 
 			<!-- Debug -->
-			<div class="flex flex-col border-2 border-current text-alt">
-				<span class="self-center p-1">Debug:</span>
-				<div class="flex flex-col gap-2 p-2 border-t-2 rounded-none! border-current">
+			<TitledSection title="Debug" class="text-alt">
+				<div class="flex flex-col gap-2">
 					<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
-
 					<div class="contents" hidden={!show_debug}>
 						{#if svgUrl}
 							<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
@@ -373,11 +366,7 @@
 						<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
 					</div>
 				</div>
-			</div>
+			</TitledSection>
 		</div>
 	</section>
-</div>
-
-<div class="fixed bottom-2 right-2 pointer-events-none">
-	<span>v0.9</span>
 </div>

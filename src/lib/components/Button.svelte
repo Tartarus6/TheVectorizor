@@ -16,7 +16,7 @@
 	disabled={props.disabled}
 	class="filled border-2 border-current {props.alt ? 'text-alt focus-within:text-alt-focus' : 'text-accent-alt focus-within:text-accent-alt-focus'} p-2"
 >
-	<span class="bg-background p-1 border-2 border-current">
-		{props.label}
-	</span>
+	<div class="bg-background p-1 border-2 border-current">
+		<span>{props.label}</span>
+	</div>
 </button>
