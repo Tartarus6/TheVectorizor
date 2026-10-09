@@ -46,6 +46,7 @@
 	// canvases
 	let image_canvas: HTMLCanvasElement | undefined = $state();
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
+	let init_edge_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
 	let svg_preview: HTMLImageElement | undefined = $state();
 
@@ -116,7 +117,7 @@
 			const bitmap = await createImageBitmap(job.file);
 
 			// Set up canvases for this job
-			if (!image_canvas || !clustered_canvas || !edge_canvas) {
+			if (!image_canvas || !clustered_canvas || !init_edge_canvas || !edge_canvas) {
 				throw new Error('Canvas elements missing');
 			}
 
@@ -126,18 +127,22 @@
 
 			clustered_canvas.width = bitmap.width;
 			clustered_canvas.height = bitmap.height;
+			init_edge_canvas.width = bitmap.width;
+			init_edge_canvas.height = bitmap.height;
 			edge_canvas.width = bitmap.width;
 			edge_canvas.height = bitmap.height;
 
 			const clustered_ctx = clustered_canvas.getContext('webgpu');
+			const init_edge_ctx = init_edge_canvas.getContext('webgpu');
 			const edge_ctx = edge_canvas.getContext('webgpu');
-			if (!clustered_ctx || !edge_ctx) {
+			if (!clustered_ctx || !init_edge_ctx || !edge_ctx) {
 				throw new Error('WebGPU context not available');
 			}
 
 			let start_time = performance.now();
 			const [success, svg] = await run_shader(
 				clustered_ctx,
+				init_edge_ctx,
 				edge_ctx,
 				bitmap,
 				base_bandwidth,
@@ -349,7 +354,7 @@
 					<span>(Will Fix) Transparent holes do not get drawn (same cause as previous issue). It just draws a transparent shape on top of a filled shape, but does not cut a hole through.</span>
 					<span>(Might Fix) Textured images and graphics that use textured lines (like pencil) may struggle.</span>
 					<span>(Might Fix) Gradients cannot be properly represented, and can mess up edge detection.</span>
-					<span>(Might Fix) Sometimes, edges near the border of </span>
+					<span>(Might Fix) Sometimes, edges near the border of the image get all weird.</span>
 				</div>
 			</TitledSection>
 
@@ -362,6 +367,7 @@
 							<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
 						{/if}
 						<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+						<canvas bind:this={init_edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
 						<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
 						<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
 					</div>

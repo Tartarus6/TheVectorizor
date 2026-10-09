@@ -7,11 +7,11 @@ import gaussian_gradient_shader from '$lib/shaders/gaussian_gradient.wgsl?raw';
 import gradient_max_shader from '$lib/shaders/gradient_maximizing.wgsl?raw';
 import edge_tracing_step_shader from '$lib/shaders/edge_tracing_step.wgsl?raw';
 import reciprocating_neighbors_shader from '$lib/shaders/reciprocating_neighbors.wgsl?raw';
+import init_edge_visualization_shader from '$lib/shaders/init_edge_visualization.wgsl?raw';
 import edge_visualization_shader from '$lib/shaders/edge_visualization.wgsl?raw';
 import face_trace_init_shader from '$lib/shaders/face_trace_init.wgsl?raw';
 import face_trace_jump_shader from '$lib/shaders/face_trace_jump.wgsl?raw';
 import { faceBuffersToSvg } from '$lib/face_svg';
-import cluster from 'cluster';
 
 // PERFORMANCE TODOS
 // DONE: implement ping-pong textures, stop doing unnecessary texture copies
@@ -157,13 +157,15 @@ type Pipelines = {
 	reciprocatingNeighbors: GPUComputePipeline;
 	faceTraceInit: GPUComputePipeline;
 	faceTraceJump: GPUComputePipeline;
+	initEdgeVisualization: GPURenderPipeline;
 	edgeVisualization: GPURenderPipeline;
 };
 
 export async function run_shader(
-	clusterCanvas: GPUCanvasContext | undefined,
-	edgeCanvas: GPUCanvasContext | undefined,
-	imageBitMap: ImageBitmap,
+	cluster_ctx: GPUCanvasContext | undefined,
+	init_edge_ctx: GPUCanvasContext | undefined,
+	edge_ctx: GPUCanvasContext | undefined,
+	image_bitmap: ImageBitmap,
 	base_bandwidth: number,
 	num_cluster_passes: number,
 	num_edge_trace_passes: number
@@ -186,7 +188,7 @@ export async function run_shader(
 		console.error('WEBGPU ERROR', e.error);
 	});
 
-	const size = getImageSize(imageBitMap);
+	const size = getImageSize(image_bitmap);
 	const textures = createSharedTextures(device, size);
 	const buffers = createSharedBuffers(device, size);
 	const pipelines = createPipelines(device);
@@ -198,7 +200,7 @@ export async function run_shader(
 	await srgbToOklabPass(
 		device,
 		pipelines.srgbToOklab,
-		imageBitMap,
+		image_bitmap,
 		textures.inputSrgb,
 		textures.oklabPing
 	);
@@ -240,7 +242,7 @@ export async function run_shader(
 	const grad_tex_b = num_cluster_passes % 2 === 0 ? textures.oklabPing : textures.oklabPong
 
 	// -- OkLab → Srgb (cluster visualization)
-	if (clusterCanvas) await oklabToSrgbPass(device, pipelines.oklabToSrgb, grad_tex_a, false, clusterCanvas);
+	if (cluster_ctx) await oklabToSrgbPass(device, pipelines.oklabToSrgb, grad_tex_a, cluster_ctx);
 
 	// --- Gaussian Gradient ---
 	await gaussianGradientPass(
@@ -260,6 +262,10 @@ export async function run_shader(
 		gradientMaxSampler,
 		size
 	);
+
+	// -- OkLab → Srgb (init edge visualization)
+	// TODO: add pass for visualizing the pixels initially marked as edges by the mazimizer
+	if (init_edge_ctx) init_edge_visualization_pass(device, pipelines.initEdgeVisualization, textures.edgePing, init_edge_ctx)
 
 	// --- Edge Tracing Steps ---
 	// TODO: either switch `final_edge_texture` to not exist (do ping pong like other passes do), or change other passes to use this sort of structure
@@ -341,13 +347,13 @@ export async function run_shader(
 	// const finalConnectionData = faceBuffers.edgeDataPing;
 
 	// --- Edge Visualization ---
-	if (edgeCanvas) {
-		await edgeVisualizationPass(
+	if (edge_ctx) {
+		await edge_visualization_pass(
 			device,
 			pipelines.edgeVisualization,
 			final_edge_texture,
 			finalConnectionData,
-			edgeCanvas
+			edge_ctx
 		);
 	}
 
@@ -746,6 +752,28 @@ function createPipelines(device: GPUDevice): Pipelines {
 		}
 	});
 
+	const initEdgeVisualizationModule = device.createShaderModule({
+		label: 'init edge visualization module',
+		code: init_edge_visualization_shader
+	});
+	const initEdgeVisualization = device.createRenderPipeline({
+		label: 'init edge visualization render pipeline',
+		layout: 'auto',
+		vertex: {
+			entryPoint: 'vs_main',
+			module: initEdgeVisualizationModule
+		},
+		fragment: {
+			entryPoint: 'fs_main',
+			module: initEdgeVisualizationModule,
+			targets: [
+				{
+					format: canvas_format
+				}
+			]
+		}
+	});
+
 	const edgeVisualizationModule = device.createShaderModule({
 		label: 'edge visualization module',
 		code: edge_visualization_shader
@@ -780,6 +808,7 @@ function createPipelines(device: GPUDevice): Pipelines {
 		reciprocatingNeighbors,
 		faceTraceInit,
 		faceTraceJump,
+		initEdgeVisualization,
 		edgeVisualization
 	};
 }
@@ -828,24 +857,15 @@ async function oklabToSrgbPass(
 	device: GPUDevice,
 	pipeline: GPURenderPipeline,
 	texture: GPUTexture,
-	showEdgePixels: boolean,
-	context: GPUCanvasContext
+	canvas_ctx: GPUCanvasContext
 ): Promise<void> {
-	const debugUniformsData = new Uint32Array([showEdgePixels ? 1 : 0]);
-	const debugUniformsBuffer = device.createBuffer({
-		label: 'oklab to srgb debug uniforms buffer',
-		size: debugUniformsData.byteLength,
-		usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-	});
-	device.queue.writeBuffer(debugUniformsBuffer, 0, debugUniformsData);
-
 	const bindGroup = device.createBindGroup({
 		label: 'oklab to srgb ping bind group',
 		layout: pipeline.getBindGroupLayout(0),
 		entries: [{ binding: 0, resource: texture.createView() }]
 	});
 
-	context.configure({
+	canvas_ctx.configure({
 		device,
 		format: canvas_format,
 		alphaMode: 'premultiplied'
@@ -855,7 +875,7 @@ async function oklabToSrgbPass(
 		label: 'oklab to srgb render pass',
 		colorAttachments: [
 			{
-				view: context.getCurrentTexture().createView(),
+				view: canvas_ctx.getCurrentTexture().createView(),
 				clearValue: [0, 0, 0, 0],
 				loadOp: 'clear',
 				storeOp: 'store'
@@ -1271,12 +1291,53 @@ async function faceTraceJumpPass(
 	device.queue.submit([encoder.finish()]);
 }
 
-async function edgeVisualizationPass(
+async function init_edge_visualization_pass(
+	device: GPUDevice,
+	pipeline: GPURenderPipeline,
+	edgeTexture: GPUTexture,
+	canvas_ctx: GPUCanvasContext
+): Promise<void> {
+	const bindGroup = device.createBindGroup({
+		label: 'edge visualization bind group',
+		layout: pipeline.getBindGroupLayout(0),
+		entries: [{binding: 0, resource: edgeTexture.createView()}]
+	});
+
+	canvas_ctx.configure({
+		device,
+		format: canvas_format,
+		alphaMode: 'premultiplied'
+	});
+
+	const renderPassDescriptor: GPURenderPassDescriptor = {
+		label: 'init edge visualization render pass',
+		colorAttachments: [
+			{
+				view: canvas_ctx.getCurrentTexture().createView(),
+				clearValue: [0, 0, 0, 0],
+				loadOp: 'clear',
+				storeOp: 'store'
+			}
+		]
+	};
+
+	const encoder = device.createCommandEncoder({ label: 'edge visualization encoder' });
+
+	const pass = encoder.beginRenderPass(renderPassDescriptor);
+	pass.setPipeline(pipeline);
+	pass.setBindGroup(0, bindGroup);
+	pass.draw(3);
+	pass.end();
+
+	device.queue.submit([encoder.finish()]);
+}
+
+async function edge_visualization_pass(
 	device: GPUDevice,
 	pipeline: GPURenderPipeline,
 	edgeTexture: GPUTexture,
 	finalConnectionData: GPUBuffer,
-	context: GPUCanvasContext
+	canvas_ctx: GPUCanvasContext
 ): Promise<void> {
 	const bindGroup = device.createBindGroup({
 		label: 'edge visualization bind group',
@@ -1295,7 +1356,7 @@ async function edgeVisualizationPass(
 		]
 	});
 
-	context.configure({
+	canvas_ctx.configure({
 		device,
 		format: canvas_format,
 		alphaMode: 'premultiplied'
@@ -1305,7 +1366,7 @@ async function edgeVisualizationPass(
 		label: 'edge visualization render pass',
 		colorAttachments: [
 			{
-				view: context.getCurrentTexture().createView(),
+				view: canvas_ctx.getCurrentTexture().createView(),
 				clearValue: [0, 0, 0, 0],
 				loadOp: 'clear',
 				storeOp: 'store'
