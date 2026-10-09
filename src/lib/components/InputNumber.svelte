@@ -20,10 +20,10 @@
 	});
 </script>
 
-<div class="flex flex-col border-2 border-accent">
+<div class="flex flex-col border-vector border-current text-accent">
 	<div class="grid grid-cols-[auto_1fr] grid-rows-1 gap-2 items-center p-2">
 		<span>{label}:</span>
-		<div class="p-1 grid grid-cols-[1fr_auto] w-full border-2 text-accent-alt border-accent-alt focus-within:border-accent-alt-focus">
+		<div class="p-1 grid grid-cols-[1fr_auto] w-full border-vector text-accent-alt border-current focus-within:text-accent-alt-focus">
 			<input
 				type="number"
 				bind:value={variable}
@@ -39,7 +39,7 @@
 
 	</div>
 	<input type="range" bind:value={variable} min={min} max={max} step={step} class="px-2" />
-	<div class="w-full py-1 px-2 border-t-2 border-current">
+	<div class="w-full py-1 px-2 border-t-vector border-current rounded-none!">
 		<span>{description}</span>
 	</div>
 </div>
@@ -59,7 +59,7 @@
 	input[type='range'] {
 		color: var(--color-accent-alt);
 
-		--border: var(--border-width) solid currentColor;
+		--border: var(--border-width-vector) solid currentColor;
 
 		--track-height: 0.2rem;
 
@@ -85,7 +85,7 @@
 	input[type='range']::-moz-range-track {
 		height: calc(var(--track-height) / 2);
 		background: currentColor;
-		border-radius: var(--border-width);
+		border-radius: var(--border-width-vector);
 	}
 
 	input[type='range']::-webkit-slider-thumb {
@@ -94,7 +94,7 @@
 		height: var(--thumb-height);
 		background: var(--color-background);
 		border: var(--border);
-		border-radius: var(--border-width);
+		border-radius: var(--border-width-vector);
 		/* center the thumb on the track (webkit doesn't do this automatically) */
 		margin-top: calc((var(--track-height) - var(--thumb-height)) / 2 - 2px);
 
@@ -111,7 +111,7 @@
 		height: var(--thumb-height);
 		background: var(--color-background);
 		border: var(--border);
-		border-radius: var(--border-width);
+		border-radius: var(--border-width-vector);
 		box-sizing: border-box;
 
 		background: repeating-linear-gradient(

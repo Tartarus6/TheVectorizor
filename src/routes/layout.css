@@ -14,17 +14,22 @@
 
 	--color-background: var(--color-slate-900);
 
-	--border-width: 2px;
-
+	/*
+	 * this basically controls the scale of the whole page.
+	 * it sets the "line width", and the font size scales to match
+	*/
+	--border-width-vector: 0.125rem;
 }
 
 * {
-	border-radius: calc(var(--border-width));
+	border-radius: calc(var(--border-width-vector));
 
 	outline: hidden;
 
 	font-family: "Google Sans Flex", sans-serif;
-	font-weight: 550;
+	font-weight: 560;
+	/*font-size: calc(1rem * (var(--border-width-vector) / 0.125rem));*/
+	font-size: calc(var(--border-width-vector) / 0.125);
 	font-optical-sizing: auto;
 	font-style: normal;
 	font-variation-settings:
@@ -34,10 +39,9 @@
 		"ROND" 100;
 }
 
-
 /* icon strokes stay at the page border width regardless of icon size */
 .preview-icon {
-	stroke-width: var(--border-width);
+	stroke-width: var(--border-width-vector);
 
 	stroke-linecap: round;
 	stroke-linejoin: round;
@@ -67,9 +71,9 @@ body {
 	background: repeating-linear-gradient(
 		45deg,
 		transparent,
-		transparent 4px,
-		currentColor 4px,
-		currentColor 6px
+		transparent calc(2 * var(--border-width-vector)),
+		currentColor calc(2 * var(--border-width-vector)),
+		currentColor calc(3 * var(--border-width-vector))
 	);
 }
 

@@ -113,7 +113,7 @@
 
 		<!-- toggle -->
 		<!-- {#if mode === "toggle"} -->
-		<div class="border-2 h-max p-2 flex-1 overflow-hidden" hidden={mode !== "toggle"}>
+		<div class="border-vector h-max p-2 flex-1 overflow-hidden" hidden={mode !== "toggle"}>
 		<div bind:this={toggle_image_container} hidden={mode !== "toggle"} class="h-full p-2 flex checker overflow-hidden rounded-none!">
 			<img
 				bind:this={toggle_image}

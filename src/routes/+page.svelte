@@ -20,7 +20,7 @@
 	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
 	// DONE: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
 	// DONE: (style) apply a tiny round to EVERYTHING to better the circular shape a CRT beam lights up
-	// TODO: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
+	// DONE: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
 
 	let jobs = $state<Job[]>([]);
 	let working: boolean = $state(false);
@@ -290,8 +290,8 @@
 		</TitledSection>
 
 		<!-- File Chooser -->
-		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent focus-within:text-accent-focus border-2 border-current">
-			<div class="p-1 flex flex-col items-center gap-2 bg-background border-2 border-current">
+		<div class="filled relative flex flex-col items-center gap-2 p-4 text-accent focus-within:text-accent-focus border-vector border-current">
+			<div class="p-1 flex flex-col items-center gap-2 bg-background border-vector border-current">
 				<span class="font-semibold">Add Images</span>
 				<span>Click or drag images here</span>
 				<span>or paste anywhere</span>
@@ -308,7 +308,7 @@
 		</div>
 
 		<!-- Buttons -->
-		<div class="flex flex-col gap-2 p-1 text-accent-alt border-current border-2">
+		<div class="flex flex-col gap-2 p-1 text-accent-alt border-current border-vector">
 			<Button handler={on_vectorize} disabled={!can_submit} label="Vectorize" alt={false}></Button>
 			<Button handler={download_all} disabled={!can_download} label={done_jobs.length > 1 ? 'Download ZIP' : 'Download SVG'} alt={false}></Button>
 		</div>
@@ -340,7 +340,7 @@
 
 		<div class="contents" hidden={!show_settings}>
 			<!-- Settings -->
-			<div class="p-1 border-2 border-current flex flex-col gap-2">
+			<div class="p-1 border-vector border-current flex flex-col gap-2">
 				<InputNumber label="Base Bandwidth" bind:variable={base_bandwidth} min={0} max={1} step={0.0001} default_value={0.05} description="Increasing this value makes color averaging more aggressive. Colors that are farther apart will be grouped together."></InputNumber>
 				<InputNumber label="Cluster Passes" bind:variable={num_cluster_passes} min={1} max={20} step={1} default_value={5} description="This is the number of color clustering passes. Increasing this can help if the output colors you are getting aren't accurate enough."></InputNumber>
 				<InputNumber label="Edge Tracing Passes" bind:variable={num_edge_trace_passes} min={0} max={10000} step={1} default_value={300} description="This is the number of edge tracing passes. If certain elements in your image aren't ending up in the output, increasing this *might* help."></InputNumber>
@@ -366,10 +366,10 @@
 						{#if svgUrl}
 							<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
 						{/if}
-						<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
-						<canvas bind:this={init_edge_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
-						<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
-						<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker"></canvas>
+						<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker rounded-none!"></canvas>
+						<canvas bind:this={init_edge_canvas} style="image-rendering: pixelated;" class="checker rounded-none!"></canvas>
+						<canvas bind:this={clustered_canvas} style="image-rendering: pixelated;" class="checker rounded-none!"></canvas>
+						<canvas bind:this={image_canvas} style="image-rendering: pixelated;" class="checker rounded-none!"></canvas>
 					</div>
 				</div>
 			</TitledSection>

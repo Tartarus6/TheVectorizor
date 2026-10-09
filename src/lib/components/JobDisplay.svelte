@@ -27,7 +27,8 @@
 </script>
 
 <div
-	class="flex flex-col border-2 border-current {props.job.status == 'done' ? 'border-accent-alt text-accent-alt' : ''}
+	class="flex flex-col border-vector border-current
+		{props.job.status == 'done' ? 'text-accent-alt' : ''}
 		{props.job.status == 'processing' ? 'text-accent' : ''}
 		{props.job.status == 'pending' ? 'border-dotted text-accent rounded-none!' : ''}
 		{props.job.status == 'error' ? 'text-alt' : ''}"
@@ -70,11 +71,11 @@
 
 	{#if props.job.status === 'error'}
 		{#if show_error}
-			<span class="border-t-2 p-1 rounded-none! border-current">{props.job.error_message}</span>
+			<span class="border-t-vector p-1 rounded-none! border-current">{props.job.error_message}</span>
 		{/if}
 	{:else if props.job.status === 'done'}
 		{#if show_result && props.job.svg_blob !== undefined}
-			<div class="border-t-2 p-1 rounded-none! border-current grid grid-cols-[1fr_auto_1fr] gap-2 grid-flow-col">
+			<div class="border-t-vector p-1 rounded-none! border-current grid grid-cols-[1fr_auto_1fr] gap-2 grid-flow-col">
 				<div class="grid grid-rows-[auto_1fr] place-items-center">
 					<span>{get_size_string(props.job.file.size)}</span>
 					<img src={props.job.image_url} alt="original" class="checker rounded-none!" />
