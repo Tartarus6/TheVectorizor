@@ -6,6 +6,7 @@
 		handler: () => void;
 		disabled: boolean;
 		alt: boolean;
+		class?: string;
 	};
 
 	let props: Props = $props()
@@ -14,7 +15,7 @@
 <button
 	onmousedown={props.handler} onkeydown={(e) => {button_keyboard_handler(e, props.handler)}}
 	disabled={props.disabled}
-	class="filled border-vector border-current {props.alt ? 'text-alt focus-within:text-alt-focus' : 'text-accent-alt focus-within:text-accent-alt-focus'} p-2"
+	class="filled border-vector border-current {props.alt ? 'text-alt focus-within:text-alt-focus' : 'text-accent-alt focus-within:text-accent-alt-focus'} p-2 {props.class}"
 >
 	<div class="bg-background p-1 border-vector border-current">
 		<span>{props.label}</span>

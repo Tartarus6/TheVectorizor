@@ -12,15 +12,17 @@
 
 	// DONE: retry, cancel, and download buttons on each job
 	// DONE: add a job result display (maybe show for all jobs, or store for each job and display on click) comparison between input bitmap and output svg (visual difference and file size)
+	// DONE: add a warning or error or something to the UI that shows up when there's no WebGPU
 	// TODO: add ability to re-vectorize after changing settings or whatever (still needs to be done for main vectorize button)
 	// TODO: (accessibility) make buttons work right with keyboard navigation (some still need work)
 	// TODO: add ability to halt vectorization
-	// TODO: add a warning or error or something to the UI that shows up when there's no WebGPU
 
 	// DONE: (style) element background colors by doing a diagnoal zigzag line, as it would be on a vector display
 	// DONE: (style) make it more obvious when a button is disabled. just turnign it red isnt intuitive enough
 	// DONE: (style) apply a tiny round to EVERYTHING to better the circular shape a CRT beam lights up
 	// DONE: (style) set global stroke width in layout.css (currently it's 2px), it should also be switched to use rem rather than px
+
+	let webgpu_available: boolean | undefined = $state();
 
 	let jobs = $state<Job[]>([]);
 	let working: boolean = $state(false);
@@ -48,11 +50,15 @@
 	let clustered_canvas: HTMLCanvasElement | undefined = $state();
 	let init_edge_canvas: HTMLCanvasElement | undefined = $state();
 	let edge_canvas: HTMLCanvasElement | undefined = $state();
-	let svg_preview: HTMLImageElement | undefined = $state();
 
-	// evilllll global event listener
 	onMount(() => {
+		// evilllll global event listener
 		document!.addEventListener('paste', on_image_pasted);
+
+		// check for WebGPU availability
+		check_webgpu_availability();
+
+		// remove global event listener
 		return () => document.removeEventListener('paste', on_image_pasted);
 	});
 
@@ -62,6 +68,12 @@
 			delete_job(job)
 		}
 	})
+
+	function check_webgpu_availability() {
+		if (navigator.gpu) {
+			webgpu_available = true
+		}
+	}
 
 	function add_files(files: File[]) {
 		jobs.push(
@@ -284,6 +296,15 @@
 
 <div class="grid grid-cols-1 {show_settings ? 'lg:grid-cols-2 lg:max-w-384' : ''} items-start w-full max-w-192 mx-auto gap-16 pt-2 pb-8 px-8">
 	<section class="flex flex-col gap-4">
+		<!-- No WebGPU Warning -->
+		{#if webgpu_available === false}
+			<TitledSection title="WARNING: WebGPU not Available!" class="text-alt">
+				<div class="flex flex-col gap-4">
+					<span>This website depends entirely on WebGPU to run. WebGPU is still experimental, so some browsers dont have it enabled by default, and it's hard (or impossible) to enable it on some browsers as well. See if you can enable it, before you can use this website. Just reload the page to check. This warning will be gone if WebGPU is available.</span>
+				</div>
+			</TitledSection>
+		{/if}
+
 		<!-- What's this For? -->
 		<TitledSection title="What's this For?" class="text-accent-alt">
 			<span>This website is a tool to convert bitmap images (JPG, PNG, etc.) into SVGs. This tool is built to handle simple graphics, such as logos, but feel free to try other images.</span>
@@ -364,7 +385,7 @@
 					<Button label={show_debug ? 'Hide Debug' : 'Show Debug'} disabled={false} handler={() => {show_debug = !show_debug}} alt={show_debug}></Button>
 					<div class="contents" hidden={!show_debug}>
 						{#if svgUrl}
-							<img bind:this={svg_preview} src={svgUrl} alt="vector output" class="checker" />
+							<img src={svgUrl} alt="vector output" class="checker" />
 						{/if}
 						<canvas bind:this={edge_canvas} style="image-rendering: pixelated;" class="checker rounded-none!"></canvas>
 						<canvas bind:this={init_edge_canvas} style="image-rendering: pixelated;" class="checker rounded-none!"></canvas>
